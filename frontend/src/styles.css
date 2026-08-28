@@ -1,0 +1,100 @@
+:root {
+  color-scheme: dark;
+  --bg: #14161a;
+  --panel: #1d2026;
+  --border: #2c3038;
+  --text: #e8e9ec;
+  --muted: #9198a3;
+  --accent: #4f8cff;
+  --ok: #33c481;
+  --warn: #e8b339;
+  --err: #e5586b;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app { display: flex; min-height: 100vh; }
+
+nav.sidebar {
+  width: 220px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 20px 12px;
+}
+
+nav.sidebar h1 { font-size: 16px; padding: 0 8px 16px; }
+
+nav.sidebar a {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+nav.sidebar a.active, nav.sidebar a:hover { background: #262a32; color: var(--text); }
+
+main { flex: 1; padding: 28px 36px; max-width: 960px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 18px;
+}
+
+h2 { margin-top: 0; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); font-size: 14px; }
+th { color: var(--muted); font-weight: 500; }
+
+button, .btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  text-decoration: none;
+  display: inline-block;
+}
+button.secondary { background: #2c3038; }
+button.danger { background: var(--err); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+input, select {
+  background: #14161a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  width: 100%;
+}
+
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; }
+
+.row { display: flex; gap: 12px; }
+.row > * { flex: 1; }
+
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+.badge.ok { background: rgba(51,196,129,0.15); color: var(--ok); }
+.badge.warn { background: rgba(232,179,57,0.15); color: var(--warn); }
+.badge.err { background: rgba(229,88,107,0.15); color: var(--err); }
+.badge.muted { background: rgba(145,152,163,0.15); color: var(--muted); }
+
+.form-actions { margin-top: 18px; display: flex; gap: 10px; }
+
+.muted { color: var(--muted); font-size: 13px; }

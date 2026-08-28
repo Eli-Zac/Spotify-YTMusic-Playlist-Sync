@@ -1,0 +1,21 @@
+services:
+  playlist-sync:
+    build: .
+    # Or once published: image: ghcr.io/eli-zac/spotify-ytmusic-playlist-sync:latest
+    container_name: playlist-sync
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
+      - SPOTIFY_REDIRECT_URI=${SPOTIFY_REDIRECT_URI:-http://localhost:8000/api/auth/spotify/callback}
+      - YTMUSIC_OAUTH_CLIENT_ID=${YTMUSIC_OAUTH_CLIENT_ID}
+      - YTMUSIC_OAUTH_CLIENT_SECRET=${YTMUSIC_OAUTH_CLIENT_SECRET}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
+    volumes:
+      - playlist-sync-data:/data
+
+volumes:
+  playlist-sync-data:
