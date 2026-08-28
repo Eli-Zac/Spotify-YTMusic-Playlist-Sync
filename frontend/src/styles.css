@@ -766,6 +766,36 @@ select {
   font-weight: 550;
 }
 
+.connection-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hint-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.hint-list li {
+  margin-bottom: 4px;
+}
+
+.headers-input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.error-text {
+  color: var(--err);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
 .device-code-box {
   background: var(--bg-elevated);
   border: 1px solid var(--border);

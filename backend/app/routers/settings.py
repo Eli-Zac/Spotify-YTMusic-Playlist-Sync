@@ -25,6 +25,7 @@ def connections(session: Session = Depends(get_session)):
             service=ServiceName.ytmusic,
             connected=ytmusic_cred is not None,
             account_label=ytmusic_cred.account_label if ytmusic_cred else "",
+            needs_reauth=ytmusic_cred is not None and ytmusic_client.needs_reauth(session),
         ),
     ]
 

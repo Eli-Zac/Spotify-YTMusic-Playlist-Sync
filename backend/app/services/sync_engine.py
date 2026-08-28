@@ -37,6 +37,11 @@ def run_sync(session: Session, rule: SyncRule) -> SyncRun:
         run.status = RunStatus.success if run.tracks_unmatched == 0 else RunStatus.partial
     except Exception as exc:  # noqa: BLE001
         logger.exception("Sync failed for rule %s", rule.id)
+        if ServiceName.ytmusic in (rule.source_service, rule.dest_service):
+            try:
+                ytmusic_client.raise_if_auth_failure(session, exc)
+            except ytmusic_client.YTMusicAuthExpired as auth_exc:
+                exc = auth_exc
         run.status = RunStatus.failed
         run.error_message = str(exc)
     finally:

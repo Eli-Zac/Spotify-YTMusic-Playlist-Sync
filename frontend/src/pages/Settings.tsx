@@ -6,8 +6,10 @@ export default function Settings() {
   const [connections, setConnections] = useState<ConnectionStatus[]>([]);
   const [webhook, setWebhook] = useState<WebhookSettings>({ enabled: false, url: "", notify_on: "failure" });
   const [savingWebhook, setSavingWebhook] = useState(false);
-  const [ytAuth, setYtAuth] = useState<{ verification_url: string; user_code: string } | null>(null);
-  const [ytPolling, setYtPolling] = useState(false);
+  const [ytHeadersOpen, setYtHeadersOpen] = useState(false);
+  const [ytHeadersRaw, setYtHeadersRaw] = useState("");
+  const [ytConnecting, setYtConnecting] = useState(false);
+  const [ytError, setYtError] = useState("");
 
   const load = async () => {
     const [conns, wh] = await Promise.all([api.connections(), api.getWebhook()]);
@@ -31,22 +33,19 @@ export default function Settings() {
     }
   };
 
-  const startYtAuth = async () => {
-    const res = await api.startYtmusicAuth();
-    setYtAuth(res);
-    setYtPolling(true);
-    const interval = setInterval(async () => {
-      try {
-        await api.completeYtmusicAuth();
-        clearInterval(interval);
-        setYtPolling(false);
-        setYtAuth(null);
-        load();
-      } catch {
-        // not authorized yet, keep polling
-      }
-    }, (res.interval || 5) * 1000);
-    setTimeout(() => clearInterval(interval), (res.expires_in || 1800) * 1000);
+  const submitYtHeaders = async () => {
+    setYtConnecting(true);
+    setYtError("");
+    try {
+      await api.connectYtmusic(ytHeadersRaw);
+      setYtHeadersOpen(false);
+      setYtHeadersRaw("");
+      load();
+    } catch (e: any) {
+      setYtError(e.message || "Couldn't connect with those headers");
+    } finally {
+      setYtConnecting(false);
+    }
   };
 
   return (
@@ -81,31 +80,59 @@ export default function Settings() {
             <ServiceIcon service="ytmusic" size={28} />
             <div>
               <strong>YT Music</strong>
-              <div className="muted">{ytmusic?.connected ? `Connected as ${ytmusic.account_label || "Google account"}` : "Not connected"}</div>
+              <div className="muted">
+                {ytmusic?.connected
+                  ? ytmusic.needs_reauth
+                    ? "Session expired — reconnect below"
+                    : `Connected as ${ytmusic.account_label || "Google account"}`
+                  : "Not connected"}
+              </div>
             </div>
           </div>
-          {ytmusic?.connected ? (
-            <button className="secondary" onClick={async () => { await api.disconnectYtmusic(); load(); }}>Disconnect</button>
-          ) : (
-            <button onClick={startYtAuth} disabled={ytPolling}>{ytPolling ? "Waiting…" : "Connect"}</button>
-          )}
+          <div className="connection-actions">
+            {ytmusic?.needs_reauth && <span className="badge warn">Reconnect needed</span>}
+            {ytmusic?.connected && (
+              <button className="secondary" onClick={async () => { await api.disconnectYtmusic(); load(); }}>Disconnect</button>
+            )}
+            <button onClick={() => setYtHeadersOpen((v) => !v)}>
+              {ytmusic?.connected ? "Reconnect" : "Connect"}
+            </button>
+          </div>
         </div>
 
-        {ytAuth && (
+        {ytHeadersOpen && (
           <div className="device-code-box">
-            <p>
-              Go to <a href={ytAuth.verification_url} target="_blank" rel="noreferrer">{ytAuth.verification_url}</a> and enter this
-              code:
+            <p>YT Music has no login button here — instead, paste request headers copied from your browser:</p>
+            <ol className="hint-list">
+              <li>Open <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a> in Chrome or Firefox and make sure you're logged in.</li>
+              <li>Open DevTools (F12) → the <strong>Network</strong> tab, then reload the page.</li>
+              <li>Find a request to <code>/youtubei/v1/browse</code> (filter by "browse"), right-click it, and choose <strong>Copy → Copy request headers</strong>.</li>
+              <li>Paste the full thing below.</li>
+            </ol>
+            <textarea
+              className="headers-input"
+              rows={8}
+              value={ytHeadersRaw}
+              onChange={(e) => setYtHeadersRaw(e.target.value)}
+              placeholder={"accept: */*\ncookie: ...\nauthorization: SAPISIDHASH ...\n..."}
+            />
+            {ytError && <p className="error-text">{ytError}</p>}
+            <div className="form-actions">
+              <button onClick={submitYtHeaders} disabled={ytConnecting || !ytHeadersRaw.trim()}>
+                {ytConnecting ? "Connecting…" : "Save"}
+              </button>
+              <button className="secondary" onClick={() => { setYtHeadersOpen(false); setYtError(""); }}>Cancel</button>
+            </div>
+            <p className="muted">
+              This session isn't permanent — YouTube will eventually expire it. When it does, syncing will fail and
+              (if webhook notifications are enabled below) you'll get a message telling you to paste fresh headers here.
             </p>
-            <div className="device-code">{ytAuth.user_code}</div>
-            <p className="muted">This page will detect authorization automatically.</p>
           </div>
         )}
 
         <p className="muted hint-block">
-          Spotify and Google API credentials for this app are configured via environment variables
-          (<code>SPOTIFY_CLIENT_ID</code>/<code>SECRET</code>, <code>YTMUSIC_OAUTH_CLIENT_ID</code>/<code>SECRET</code>) in your
-          docker-compose file. See the README if you haven't set those up yet.
+          Spotify API credentials for this app are configured via environment variables
+          (<code>SPOTIFY_CLIENT_ID</code>/<code>SECRET</code>) in your docker-compose file.
         </p>
       </div>
 

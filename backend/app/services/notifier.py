@@ -49,3 +49,24 @@ def notify_run_result(session: Session, rule: SyncRule, run: SyncRun) -> None:
         httpx.post(config["url"], json=payload, timeout=10)
     except Exception:  # noqa: BLE001
         logger.exception("Failed to send webhook notification")
+
+
+def notify_message(session: Session, title: str, message: str) -> None:
+    """Sends a standalone webhook notification not tied to a specific sync run
+    (e.g. a connection needing reauthorization). Always sent regardless of the
+    webhook's notify_on setting, since these are already deduplicated by the caller."""
+    config = get_webhook_config(session)
+    if not config["enabled"] or not config["url"]:
+        return
+
+    payload = {
+        "title": title,
+        "message": message,
+        "content": f"**{title}**\n{message}",
+        "text": f"*{title}*\n{message}",
+    }
+
+    try:
+        httpx.post(config["url"], json=payload, timeout=10)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to send webhook notification")

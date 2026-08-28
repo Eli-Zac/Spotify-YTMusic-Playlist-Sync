@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.database import get_session
@@ -7,20 +8,17 @@ from app.services import ytmusic_client
 router = APIRouter(prefix="/api/auth/ytmusic", tags=["auth-ytmusic"])
 
 
-@router.post("/start")
-def start():
-    try:
-        return ytmusic_client.start_device_auth()
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+class ConnectPayload(BaseModel):
+    headers_raw: str
 
 
-@router.post("/complete")
-def complete(session: Session = Depends(get_session)):
+@router.post("/connect")
+def connect(payload: ConnectPayload, session: Session = Depends(get_session)):
     try:
-        return ytmusic_client.complete_device_auth(session)
-    except Exception as exc:  # noqa: BLE001
+        ytmusic_client.store_browser_headers(session, payload.headers_raw)
+    except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"connected": True}
 
 
 @router.delete("")
@@ -29,4 +27,5 @@ def disconnect(session: Session = Depends(get_session)):
     if cred:
         session.delete(cred)
         session.commit()
+    ytmusic_client.clear_needs_reauth(session)
     return {"disconnected": True}

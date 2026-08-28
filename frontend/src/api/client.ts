@@ -37,6 +37,7 @@ export interface ConnectionStatus {
   service: ServiceName;
   connected: boolean;
   account_label: string;
+  needs_reauth: boolean;
 }
 
 export interface WebhookSettings {
@@ -85,9 +86,9 @@ export const api = {
 
   disconnectSpotify: () => req("/api/auth/spotify", { method: "DELETE" }),
   disconnectYtmusic: () => req("/api/auth/ytmusic", { method: "DELETE" }),
-  startYtmusicAuth: () => req<{ verification_url: string; user_code: string; expires_in: number; interval: number }>(
-    "/api/auth/ytmusic/start",
-    { method: "POST" }
-  ),
-  completeYtmusicAuth: () => req<{ connected: boolean }>("/api/auth/ytmusic/complete", { method: "POST" }),
+  connectYtmusic: (headersRaw: string) =>
+    req<{ connected: boolean }>("/api/auth/ytmusic/connect", {
+      method: "POST",
+      body: JSON.stringify({ headers_raw: headersRaw }),
+    }),
 };

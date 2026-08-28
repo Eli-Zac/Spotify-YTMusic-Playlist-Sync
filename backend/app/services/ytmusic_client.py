@@ -1,81 +1,87 @@
 from __future__ import annotations
 
-import json
-import time
-from datetime import datetime, timedelta
-
 from sqlmodel import Session, select
 from ytmusicapi import YTMusic
-from ytmusicapi.auth.oauth import OAuthCredentials
+from ytmusicapi.exceptions import YTMusicServerError, YTMusicUserError
+from ytmusicapi.setup import setup as parse_browser_headers
 
-from app.config import settings
 from app.models import Credential, ServiceName
 from app.security import decrypt, encrypt
+from app.services import notifier
+from app.settings_store import get_setting, set_setting
 
-# In-memory holder for in-flight device-code auth attempts (single-user instance).
-_pending_device_codes: dict[str, dict] = {}
-
-# ytmusicapi's OAuth Token dataclass only accepts these fields - it passes the auth
-# dict straight through as **kwargs, so any extra key (e.g. Google's newer
-# "refresh_token_expires_in") raises TypeError: unexpected keyword argument.
-_YTMUSIC_TOKEN_FIELDS = {"scope", "token_type", "access_token", "refresh_token", "expires_at", "expires_in"}
+_NEEDS_REAUTH_KEY = "ytmusic_needs_reauth"
 
 
-def _for_ytmusicapi(token: dict) -> dict:
-    return {k: v for k, v in token.items() if k in _YTMUSIC_TOKEN_FIELDS}
+class YTMusicAuthExpired(RuntimeError):
+    pass
 
 
-def build_oauth_credentials() -> OAuthCredentials:
-    return OAuthCredentials(
-        client_id=settings.ytmusic_oauth_client_id,
-        client_secret=settings.ytmusic_oauth_client_secret,
+def _looks_like_auth_failure(exc: Exception) -> bool:
+    if isinstance(exc, YTMusicUserError):
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in ("401", "unauthorized", "authenticat", "cookie", "sign in", "sign-in")
     )
 
 
-def start_device_auth() -> dict:
-    creds = build_oauth_credentials()
-    code = creds.get_code()
-    _pending_device_codes["current"] = code
-    return {
-        "verification_url": code["verification_url"],
-        "user_code": code["user_code"],
-        "expires_in": code.get("expires_in", 1800),
-        "interval": code.get("interval", 5),
-    }
+def _mark_needs_reauth(session: Session) -> None:
+    already_flagged = get_setting(session, _NEEDS_REAUTH_KEY, "false") == "true"
+    set_setting(session, _NEEDS_REAUTH_KEY, "true")
+    if not already_flagged:
+        notifier.notify_message(
+            session,
+            title="[YT Music] Session expired",
+            message="YT Music's browser session has expired. Reconnect it from Settings to resume syncing.",
+        )
 
 
-def complete_device_auth(session: Session) -> dict:
-    code = _pending_device_codes.get("current")
-    if not code:
-        raise RuntimeError("No pending YT Music authorization. Start the connect flow again.")
-    creds = build_oauth_credentials()
-    token = creds.token_from_code(code["device_code"])
-    store_token(session, token)
-    _pending_device_codes.pop("current", None)
-    return {"connected": True}
+def needs_reauth(session: Session) -> bool:
+    return get_setting(session, _NEEDS_REAUTH_KEY, "false") == "true"
 
 
-def store_token(session: Session, token: dict, account_label: str = "") -> dict:
+def clear_needs_reauth(session: Session) -> None:
+    set_setting(session, _NEEDS_REAUTH_KEY, "false")
+
+
+def raise_if_auth_failure(session: Session, exc: Exception) -> None:
+    """Re-raises a clean, user-facing error if exc looks like an expired YT Music
+    session, marking the connection as needing reauth and notifying once per episode.
+    Leaves exc untouched (returns normally) for anything else."""
+    if _looks_like_auth_failure(exc):
+        _mark_needs_reauth(session)
+        raise YTMusicAuthExpired("YT Music session expired. Reconnect it from Settings.") from exc
+
+
+def store_browser_headers(session: Session, headers_raw: str) -> None:
+    try:
+        headers_json = parse_browser_headers(headers_raw=headers_raw)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Couldn't parse those headers: {exc}") from exc
+
+    yt = YTMusic(auth=headers_json)
+    try:
+        yt.get_library_playlists(limit=1)
+    except (YTMusicServerError, YTMusicUserError) as exc:
+        raise RuntimeError(f"Those headers didn't work against YT Music: {exc}") from exc
+
+    account_label = ""
+    try:
+        account_label = yt.get_account_info().get("accountName", "")
+    except Exception:  # noqa: BLE001
+        pass  # cosmetic only - the connection above already proved the headers work
+
     cred = session.exec(select(Credential).where(Credential.service == ServiceName.ytmusic)).first()
     if cred is None:
         cred = Credential(service=ServiceName.ytmusic, access_token_enc="")
-    cred.access_token_enc = encrypt(token["access_token"])
-    if token.get("refresh_token"):
-        cred.refresh_token_enc = encrypt(token["refresh_token"])
-    expires_at = datetime.utcnow() + timedelta(seconds=token.get("expires_in", 3600))
-    cred.expires_at = expires_at
-    # ytmusicapi's Token dataclass reads "expires_at" (a unix timestamp) directly out
-    # of this dict and defaults it to 0 when absent, which makes every access_token
-    # read look expired and forces a synchronous refresh on every single API call.
-    # Google's token endpoint only ever returns "expires_in", so compute it ourselves.
-    token = {**token, "expires_at": int(time.time()) + token.get("expires_in", 3600)}
-    cred.extra_enc = encrypt(json.dumps(token))
+    cred.access_token_enc = encrypt(headers_json)
     if account_label:
         cred.account_label = account_label
-    cred.updated_at = datetime.utcnow()
     session.add(cred)
     session.commit()
-    return token
+    clear_needs_reauth(session)
 
 
 def get_credential(session: Session) -> Credential | None:
@@ -86,22 +92,7 @@ def get_client(session: Session) -> YTMusic:
     cred = get_credential(session)
     if cred is None:
         raise RuntimeError("YT Music is not connected. Connect it from Settings.")
-
-    token = json.loads(decrypt(cred.extra_enc))
-    if "expires_at" not in token:
-        token["expires_at"] = int(cred.expires_at.timestamp()) if cred.expires_at else int(time.time())
-    creds = build_oauth_credentials()
-
-    if cred.expires_at and cred.expires_at <= datetime.utcnow() + timedelta(seconds=30):
-        refreshed = creds.refresh_token(token["refresh_token"])
-        token.update(refreshed)
-        token = store_token(session, token)
-
-    # Headless server request with no browser/cookie locale hints - ytmusicapi
-    # otherwise sends no "gl" (country) field in the request context at all.
-    # Experimental: try pinning one to see if that's related to the generic
-    # "invalid argument" 400 on browse calls.
-    return YTMusic(auth=_for_ytmusicapi(token), oauth_credentials=creds, location="US")
+    return YTMusic(auth=decrypt(cred.access_token_enc))
 
 
 def list_playlists(yt: YTMusic) -> list[dict]:

@@ -76,6 +76,7 @@ class ConnectionStatus(BaseModel):
     service: ServiceName
     connected: bool
     account_label: str = ""
+    needs_reauth: bool = False
 
 
 class PlaylistRead(BaseModel):
