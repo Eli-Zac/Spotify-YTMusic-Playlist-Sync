@@ -1102,6 +1102,12 @@ select {
   margin: 0;
 }
 
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .modal-close {
   background: none;
   border: none;

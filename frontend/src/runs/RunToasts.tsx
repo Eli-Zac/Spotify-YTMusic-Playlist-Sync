@@ -21,19 +21,35 @@ function statusLabel(run: ReturnType<typeof useRuns>["runs"][number]): string {
 
 function LogsModal({ ruleName, log, onClose }: { ruleName: string; log: string[]; onClose: () => void }) {
   const bodyRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
   }, [log.length]);
+
+  const copyLogs = async () => {
+    try {
+      await navigator.clipboard.writeText(log.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard API unavailable/denied - nothing more we can do
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal logs-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{ruleName} — logs</h3>
-          <button className="modal-close" onClick={onClose} aria-label="Close">
-            ×
-          </button>
+          <div className="modal-head-actions">
+            <button className="btn secondary" onClick={copyLogs} disabled={!log.length}>
+              {copied ? "Copied!" : "Copy logs"}
+            </button>
+            <button className="modal-close" onClick={onClose} aria-label="Close">
+              ×
+            </button>
+          </div>
         </div>
         <div className="logs-body" ref={bodyRef}>
           {log.length ? (
