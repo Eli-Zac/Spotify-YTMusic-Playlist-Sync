@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from sqlmodel import Session, select
 from ytmusicapi import YTMusic
 from ytmusicapi.exceptions import YTMusicServerError, YTMusicUserError
@@ -13,25 +11,6 @@ from app.services import notifier
 from app.settings_store import get_setting, set_setting
 
 _NEEDS_REAUTH_KEY = "ytmusic_needs_reauth"
-
-_CURL_HEADER_RE = re.compile(r"(?:-H|--header)\s+(['\"])(.*?)\1", re.DOTALL)
-
-
-def _headers_raw_from_paste(pasted: str) -> str:
-    """DevTools' "Copy request headers" option no longer exists in current Chrome -
-    "Copy as cURL" is what's actually available there. Accept either: raw
-    "key: value" lines (Firefox, or older Chrome), or a pasted curl command."""
-    stripped = pasted.strip()
-    if not stripped.lower().startswith("curl"):
-        return pasted
-
-    lines = [content for _quote, content in _CURL_HEADER_RE.findall(stripped) if ":" in content]
-    if not lines:
-        raise RuntimeError(
-            "That looked like a curl command but no -H headers were found in it. "
-            "Make sure you used \"Copy as cURL (bash)\"."
-        )
-    return "\n".join(lines)
 
 
 class YTMusicAuthExpired(RuntimeError):
@@ -76,8 +55,13 @@ def raise_if_auth_failure(session: Session, exc: Exception) -> None:
         raise YTMusicAuthExpired("YT Music session expired. Reconnect it from Settings.") from exc
 
 
-def store_browser_headers(session: Session, headers_raw: str) -> None:
-    headers_raw = _headers_raw_from_paste(headers_raw)
+def store_browser_headers(session: Session, cookie: str, authorization: str) -> None:
+    cookie = cookie.strip()
+    authorization = authorization.strip()
+    if not cookie or not authorization:
+        raise RuntimeError("Both the Cookie and Authorization values are required.")
+
+    headers_raw = f"cookie: {cookie}\nauthorization: {authorization}\nx-goog-authuser: 0"
     try:
         headers_json = parse_browser_headers(headers_raw=headers_raw)
     except Exception as exc:  # noqa: BLE001

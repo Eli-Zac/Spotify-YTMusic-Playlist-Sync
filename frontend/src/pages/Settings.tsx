@@ -7,7 +7,8 @@ export default function Settings() {
   const [webhook, setWebhook] = useState<WebhookSettings>({ enabled: false, url: "", notify_on: "failure" });
   const [savingWebhook, setSavingWebhook] = useState(false);
   const [ytHeadersOpen, setYtHeadersOpen] = useState(false);
-  const [ytHeadersRaw, setYtHeadersRaw] = useState("");
+  const [ytCookie, setYtCookie] = useState("");
+  const [ytAuthorization, setYtAuthorization] = useState("");
   const [ytConnecting, setYtConnecting] = useState(false);
   const [ytError, setYtError] = useState("");
 
@@ -37,12 +38,13 @@ export default function Settings() {
     setYtConnecting(true);
     setYtError("");
     try {
-      await api.connectYtmusic(ytHeadersRaw);
+      await api.connectYtmusic(ytCookie, ytAuthorization);
       setYtHeadersOpen(false);
-      setYtHeadersRaw("");
+      setYtCookie("");
+      setYtAuthorization("");
       load();
     } catch (e: any) {
-      setYtError(e.message || "Couldn't connect with those headers");
+      setYtError(e.message || "Couldn't connect with those values");
     } finally {
       setYtConnecting(false);
     }
@@ -102,29 +104,35 @@ export default function Settings() {
 
         {ytHeadersOpen && (
           <div className="device-code-box">
-            <p>YT Music has no login button here — instead, paste request headers copied from your browser:</p>
+            <p>YT Music has no login button here — instead, copy two values out of your browser's dev tools:</p>
             <ol className="hint-list">
-              <li>Open <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a> in Chrome or Firefox and make sure you're logged in.</li>
-              <li>Open DevTools (F12) → the <strong>Network</strong> tab, then reload the page.</li>
-              <li>Find a request to <code>/youtubei/v1/browse</code> (filter by "browse") and click it to open its details.</li>
-              <li>
-                In the <strong>Headers</strong> tab, scroll to the <strong>Request Headers</strong> section. Chrome strips
-                cookies out of "Copy as cURL" for privacy, so use the small <strong>raw</strong> link/toggle next to that
-                section instead (Firefox shows raw headers by default) — then select and copy that whole block, cookie
-                line included.
-              </li>
-              <li>Paste it below. (A copied cURL command works too, if your browser's version does include the cookie in it.)</li>
+              <li>Open <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a>, logged in, and open DevTools (F12) → the <strong>Network</strong> tab.</li>
+              <li>Reload the page, then find a request to <code>/youtubei/v1/browse</code> (filter by "browse") and click it.</li>
+              <li>In the <strong>Headers</strong> tab, scroll to <strong>Request Headers</strong>. Click on the <strong>cookie</strong> row to expand it, then copy its full value into the field below.</li>
+              <li>Do the same for the <strong>authorization</strong> row (starts with <code>SAPISIDHASH</code>).</li>
             </ol>
-            <textarea
-              className="headers-input"
-              rows={8}
-              value={ytHeadersRaw}
-              onChange={(e) => setYtHeadersRaw(e.target.value)}
-              placeholder={"accept: */*\ncookie: VISITOR_INFO1_LIVE=...; __Secure-3PAPISID=...\nauthorization: SAPISIDHASH ...\nx-goog-authuser: 0\n..."}
-            />
+            <div className="field">
+              <label>Cookie</label>
+              <textarea
+                className="headers-input"
+                rows={3}
+                value={ytCookie}
+                onChange={(e) => setYtCookie(e.target.value)}
+                placeholder="VISITOR_INFO1_LIVE=...; __Secure-3PAPISID=...; ..."
+              />
+            </div>
+            <div className="field">
+              <label>Authorization</label>
+              <input
+                className="headers-input"
+                value={ytAuthorization}
+                onChange={(e) => setYtAuthorization(e.target.value)}
+                placeholder="SAPISIDHASH 1234567890_abcdef..."
+              />
+            </div>
             {ytError && <p className="error-text">{ytError}</p>}
             <div className="form-actions">
-              <button onClick={submitYtHeaders} disabled={ytConnecting || !ytHeadersRaw.trim()}>
+              <button onClick={submitYtHeaders} disabled={ytConnecting || !ytCookie.trim() || !ytAuthorization.trim()}>
                 {ytConnecting ? "Connecting…" : "Save"}
               </button>
               <button className="secondary" onClick={() => { setYtHeadersOpen(false); setYtError(""); }}>Cancel</button>

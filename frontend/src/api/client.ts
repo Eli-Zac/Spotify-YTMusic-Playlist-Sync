@@ -86,9 +86,9 @@ export const api = {
 
   disconnectSpotify: () => req("/api/auth/spotify", { method: "DELETE" }),
   disconnectYtmusic: () => req("/api/auth/ytmusic", { method: "DELETE" }),
-  connectYtmusic: (headersRaw: string) =>
+  connectYtmusic: (cookie: string, authorization: string) =>
     req<{ connected: boolean }>("/api/auth/ytmusic/connect", {
       method: "POST",
-      body: JSON.stringify({ headers_raw: headersRaw }),
+      body: JSON.stringify({ cookie, authorization }),
     }),
 };

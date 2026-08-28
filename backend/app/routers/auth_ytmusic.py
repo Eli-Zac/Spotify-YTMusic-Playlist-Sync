@@ -9,13 +9,14 @@ router = APIRouter(prefix="/api/auth/ytmusic", tags=["auth-ytmusic"])
 
 
 class ConnectPayload(BaseModel):
-    headers_raw: str
+    cookie: str
+    authorization: str
 
 
 @router.post("/connect")
 def connect(payload: ConnectPayload, session: Session = Depends(get_session)):
     try:
-        ytmusic_client.store_browser_headers(session, payload.headers_raw)
+        ytmusic_client.store_browser_headers(session, payload.cookie, payload.authorization)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"connected": True}
