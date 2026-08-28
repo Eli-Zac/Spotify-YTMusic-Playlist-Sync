@@ -74,24 +74,13 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
     while results:
         for p in results["items"]:
             images = p.get("images") or []
-            # Both the playlist-list and single-playlist endpoints' embedded
-            # tracks.total are unreliable (often 0 even for non-empty playlists).
-            # The dedicated tracks sub-resource - the same one fetch_playlist_tracks
-            # uses for actual syncing - reports the real count. spotipy defaults
-            # additional_types to ("track", "episode"), but Spotify's Nov 2024 API
-            # policy change 403s the whole call for apps without extended access
-            # the moment "episode" is requested - even for playlists you own.
-            # Restrict to just "track" (all we ever sync) to avoid that.
+            # The playlist-list endpoint's embedded tracks.total is unreliable
+            # (often 0 even for non-empty playlists). playlist_items() - the same
+            # call fetch_playlist_tracks uses for actual syncing - reports the
+            # real count.
             try:
                 items = sp.playlist_items(p["id"], fields="total", limit=1, additional_types=("track",))
                 track_count = items.get("total") or 0
-                if not track_count:
-                    logger.warning(
-                        "Spotify playlist_items returned no total for %r (id=%s): %r",
-                        p.get("name"),
-                        p["id"],
-                        items,
-                    )
             except spotipy.SpotifyException as exc:
                 logger.warning(
                     "Spotify playlist_items failed for %r (id=%s): %s", p.get("name"), p["id"], exc
