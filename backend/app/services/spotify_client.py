@@ -74,9 +74,15 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
             # Both the playlist-list and single-playlist endpoints' embedded
             # tracks.total are unreliable (often 0 even for non-empty playlists).
             # The dedicated tracks sub-resource - the same one fetch_playlist_tracks
-            # uses for actual syncing - reports the real count.
-            items = sp.playlist_items(p["id"], fields="total", limit=1)
-            track_count = items.get("total") or 0
+            # uses for actual syncing - reports the real count. Some playlists
+            # (e.g. Spotify-owned/algorithmic ones a dev-mode app can't fully read)
+            # 403 on that call - fall back to the unreliable total rather than
+            # failing the whole list for one playlist.
+            try:
+                items = sp.playlist_items(p["id"], fields="total", limit=1)
+                track_count = items.get("total") or 0
+            except spotipy.SpotifyException:
+                track_count = (p.get("tracks") or {}).get("total") or 0
             playlists.append(
                 {
                     "id": p["id"],
