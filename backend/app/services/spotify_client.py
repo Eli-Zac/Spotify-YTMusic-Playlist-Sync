@@ -71,11 +71,17 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
     while results:
         for p in results["items"]:
             images = p.get("images") or []
+            track_count = (p.get("tracks") or {}).get("total") or 0
+            if not track_count:
+                # The list endpoint's tracks.total is unreliable (often stale/0) even
+                # when the playlist has tracks; the single-playlist endpoint is accurate.
+                detail = sp.playlist(p["id"], fields="tracks.total")
+                track_count = (detail.get("tracks") or {}).get("total") or 0
             playlists.append(
                 {
                     "id": p["id"],
                     "name": p.get("name", ""),
-                    "track_count": (p.get("tracks") or {}).get("total", 0),
+                    "track_count": track_count,
                     "image": images[0]["url"] if images else None,
                 }
             )
