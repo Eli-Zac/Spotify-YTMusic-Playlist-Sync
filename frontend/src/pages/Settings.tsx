@@ -106,15 +106,15 @@ export default function Settings() {
             <ol className="hint-list">
               <li>Open <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a> in Chrome or Firefox and make sure you're logged in.</li>
               <li>Open DevTools (F12) → the <strong>Network</strong> tab, then reload the page.</li>
-              <li>Find a request to <code>/youtubei/v1/browse</code> (filter by "browse"), right-click it, and choose <strong>Copy → Copy request headers</strong>.</li>
-              <li>Paste the full thing below.</li>
+              <li>Find a request to <code>/youtubei/v1/browse</code> (filter by "browse"), right-click it, and choose <strong>Copy → Copy as cURL (bash)</strong>.</li>
+              <li>Paste the full thing below (a raw list of header lines works too, if that's what you have).</li>
             </ol>
             <textarea
               className="headers-input"
               rows={8}
               value={ytHeadersRaw}
               onChange={(e) => setYtHeadersRaw(e.target.value)}
-              placeholder={"accept: */*\ncookie: ...\nauthorization: SAPISIDHASH ...\n..."}
+              placeholder={"curl 'https://music.youtube.com/...' \\\n  -H 'cookie: ...' \\\n  -H 'authorization: SAPISIDHASH ...' \\\n  ..."}
             />
             {ytError && <p className="error-text">{ytError}</p>}
             <div className="form-actions">
