@@ -106,15 +106,21 @@ export default function Settings() {
             <ol className="hint-list">
               <li>Open <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a> in Chrome or Firefox and make sure you're logged in.</li>
               <li>Open DevTools (F12) → the <strong>Network</strong> tab, then reload the page.</li>
-              <li>Find a request to <code>/youtubei/v1/browse</code> (filter by "browse"), right-click it, and choose <strong>Copy → Copy as cURL (bash)</strong>.</li>
-              <li>Paste the full thing below (a raw list of header lines works too, if that's what you have).</li>
+              <li>Find a request to <code>/youtubei/v1/browse</code> (filter by "browse") and click it to open its details.</li>
+              <li>
+                In the <strong>Headers</strong> tab, scroll to the <strong>Request Headers</strong> section. Chrome strips
+                cookies out of "Copy as cURL" for privacy, so use the small <strong>raw</strong> link/toggle next to that
+                section instead (Firefox shows raw headers by default) — then select and copy that whole block, cookie
+                line included.
+              </li>
+              <li>Paste it below. (A copied cURL command works too, if your browser's version does include the cookie in it.)</li>
             </ol>
             <textarea
               className="headers-input"
               rows={8}
               value={ytHeadersRaw}
               onChange={(e) => setYtHeadersRaw(e.target.value)}
-              placeholder={"curl 'https://music.youtube.com/...' \\\n  -H 'cookie: ...' \\\n  -H 'authorization: SAPISIDHASH ...' \\\n  ..."}
+              placeholder={"accept: */*\ncookie: VISITOR_INFO1_LIVE=...; __Secure-3PAPISID=...\nauthorization: SAPISIDHASH ...\nx-goog-authuser: 0\n..."}
             />
             {ytError && <p className="error-text">{ytError}</p>}
             <div className="form-actions">
