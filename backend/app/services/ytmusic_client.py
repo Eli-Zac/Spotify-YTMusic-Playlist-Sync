@@ -119,7 +119,10 @@ def list_playlists(yt: YTMusic) -> list[dict]:
     return playlists
 
 
-def fetch_playlist_tracks(yt: YTMusic, playlist_id: str) -> list[dict]:
+def fetch_playlist_tracks(yt: YTMusic, playlist_id: str, on_page=None) -> list[dict]:
+    # ytmusicapi's get_playlist handles pagination internally with no per-page
+    # hook, so there's no true incremental progress to report here - just a
+    # completion signal, kept for a uniform interface with spotify_client.
     playlist = yt.get_playlist(playlist_id, limit=None)
     tracks = []
     for t in playlist.get("tracks", []):
@@ -133,6 +136,8 @@ def fetch_playlist_tracks(yt: YTMusic, playlist_id: str) -> list[dict]:
                 "artist": ", ".join(a["name"] for a in t.get("artists", []) or []),
             }
         )
+    if on_page:
+        on_page(len(tracks), len(tracks))
     return tracks
 
 

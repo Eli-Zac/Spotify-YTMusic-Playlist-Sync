@@ -25,7 +25,7 @@ export function progressLabel(p: RunProgress | null): string {
   if (!p) return "Running…";
   switch (p.phase) {
     case "fetching":
-      return "Fetching playlists…";
+      return p.total ? `Fetching ${p.current}/${p.total}…` : "Fetching playlists…";
     case "matching":
       return p.total ? `Matching ${p.current}/${p.total}…` : "Matching…";
     case "adding":

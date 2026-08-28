@@ -180,15 +180,21 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress)
             f"{rule.dest_service.value}. Create it manually first, then re-run the sync."
         )
 
+    def _on_page(fetched: int, total: int) -> None:
+        progress.set_phase("fetching", fetched, total)
+        progress.flush()
+
     progress.check_cancelled()
     progress.set_phase("fetching")
     progress.log(f"Fetching '{rule.source_playlist_name or rule.source_playlist_id}' from {rule.source_service.value}…")
     progress.flush(force=True)
-    source_tracks = src_mod.fetch_playlist_tracks(src_client, rule.source_playlist_id)
+    source_tracks = src_mod.fetch_playlist_tracks(src_client, rule.source_playlist_id, on_page=_on_page)
+    progress.log(f"Fetched {len(source_tracks)} track(s) from {rule.source_service.value}.")
     progress.check_cancelled()
     progress.log(f"Fetching '{rule.dest_playlist_name or rule.dest_playlist_id}' from {rule.dest_service.value}…")
     progress.flush(force=True)
-    dest_tracks = dst_mod.fetch_playlist_tracks(dst_client, rule.dest_playlist_id)
+    dest_tracks = dst_mod.fetch_playlist_tracks(dst_client, rule.dest_playlist_id, on_page=_on_page)
+    progress.log(f"Fetched {len(dest_tracks)} track(s) from {rule.dest_service.value}.")
     progress.check_cancelled()
 
     same_service = rule.source_service == rule.dest_service

@@ -98,10 +98,16 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
     return playlists
 
 
-def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> list[dict]:
-    """Returns normalized track dicts: {id, isrc, title, artist}."""
+def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str, on_page=None) -> list[dict]:
+    """Returns normalized track dicts: {id, isrc, title, artist}.
+
+    on_page, if given, is called after each page with (len(tracks) so far, total)
+    so a caller can surface live progress on playlists large enough that paging
+    through them takes a while.
+    """
     tracks = []
     results = sp.playlist_items(playlist_id, additional_types=["track"])
+    total = results.get("total") or 0
     while results:
         for item in results["items"]:
             t = item.get("track")
@@ -116,6 +122,8 @@ def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> list[dict]:
                     "artist": ", ".join(a["name"] for a in t.get("artists", [])),
                 }
             )
+        if on_page:
+            on_page(len(tracks), total)
         results = sp.next(results) if results.get("next") else None
     return tracks
 
