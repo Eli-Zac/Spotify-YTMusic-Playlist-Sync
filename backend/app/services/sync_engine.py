@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime
 
 from sqlmodel import Session
@@ -11,9 +12,20 @@ from app.services import matcher, notifier, spotify_client, ytmusic_client
 
 logger = logging.getLogger(__name__)
 
+# How often (seconds) to write progress to the DB during a long run - frequent
+# enough for the UI to feel live, infrequent enough not to hammer SQLite with
+# a commit per track on a 700-song playlist.
+_PROGRESS_WRITE_INTERVAL = 1.5
+
 
 class SyncError(Exception):
     pass
+
+
+def _set_progress(session: Session, run: SyncRun, phase: str, current: int, total: int) -> None:
+    run.detail_json = json.dumps({"phase": phase, "current": current, "total": total})
+    session.add(run)
+    session.commit()
 
 
 def _get_client(session: Session, service: ServiceName):
@@ -26,12 +38,15 @@ def _module(service: ServiceName):
     return spotify_client if service == ServiceName.spotify else ytmusic_client
 
 
-def run_sync(session: Session, rule: SyncRule) -> SyncRun:
+def create_run(session: Session, rule: SyncRule) -> SyncRun:
     run = SyncRun(rule_id=rule.id, status=RunStatus.running, started_at=datetime.utcnow())
     session.add(run)
     session.commit()
     session.refresh(run)
+    return run
 
+
+def execute_run(session: Session, rule: SyncRule, run: SyncRun) -> SyncRun:
     try:
         _do_run(session, rule, run)
         run.status = RunStatus.success if run.tracks_unmatched == 0 else RunStatus.partial
@@ -54,6 +69,24 @@ def run_sync(session: Session, rule: SyncRule) -> SyncRun:
     return run
 
 
+def run_sync(session: Session, rule: SyncRule) -> SyncRun:
+    run = create_run(session, rule)
+    return execute_run(session, rule, run)
+
+
+def run_by_id_in_background(rule_id: int, run_id: int) -> None:
+    """Entry point for a one-off background job (see routers/rules.py's /run
+    endpoint) - opens its own DB session since it runs outside any request."""
+    from app.database import engine
+
+    with Session(engine) as session:
+        rule = session.get(SyncRule, rule_id)
+        run = session.get(SyncRun, run_id)
+        if not rule or not run:
+            return
+        execute_run(session, rule, run)
+
+
 def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
     src_mod = _module(rule.source_service)
     dst_mod = _module(rule.dest_service)
@@ -67,6 +100,7 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
             f"{rule.dest_service.value}. Create it manually first, then re-run the sync."
         )
 
+    _set_progress(session, run, "fetching", 0, 0)
     source_tracks = src_mod.fetch_playlist_tracks(src_client, rule.source_playlist_id)
     dest_tracks = dst_mod.fetch_playlist_tracks(dst_client, rule.dest_playlist_id)
 
@@ -76,7 +110,9 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
     to_add_ids: list[str] = []
     unmatched = 0
 
-    for src_track in source_tracks:
+    total = len(source_tracks)
+    last_write = time.monotonic()
+    for i, src_track in enumerate(source_tracks, start=1):
         existing = matcher.find_match(src_track, dest_tracks, dest_isrc_index)
         if existing:
             continue
@@ -91,7 +127,13 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
             else:
                 unmatched += 1
 
+        now = time.monotonic()
+        if now - last_write >= _PROGRESS_WRITE_INTERVAL or i == total:
+            _set_progress(session, run, "matching", i, total)
+            last_write = now
+
     if to_add_ids:
+        _set_progress(session, run, "adding", 0, len(to_add_ids))
         dst_mod.add_tracks(dst_client, rule.dest_playlist_id, to_add_ids)
 
     removed_count = 0
@@ -103,6 +145,7 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
             if not match and dest_track["id"] not in to_add_ids:
                 to_remove_ids.append(dest_track["id"])
         if to_remove_ids:
+            _set_progress(session, run, "removing", 0, len(to_remove_ids))
             dst_mod.remove_tracks(dst_client, rule.dest_playlist_id, to_remove_ids)
         removed_count = len(to_remove_ids)
 

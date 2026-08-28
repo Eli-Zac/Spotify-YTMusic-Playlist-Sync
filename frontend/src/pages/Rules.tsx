@@ -8,10 +8,26 @@ function scheduleLabel(rule: SyncRule) {
   return `every ${rule.schedule_interval_minutes}m`;
 }
 
+function progressLabel(detailJson: string | null | undefined): string | null {
+  if (!detailJson) return null;
+  try {
+    const d = JSON.parse(detailJson);
+    if (!d.phase) return null;
+    if (d.phase === "fetching") return "Fetching playlists…";
+    if (d.phase === "matching") return d.total ? `Matching ${d.current}/${d.total}…` : "Matching…";
+    if (d.phase === "adding") return `Adding ${d.total} track${d.total === 1 ? "" : "s"}…`;
+    if (d.phase === "removing") return `Removing ${d.total} track${d.total === 1 ? "" : "s"}…`;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Rules() {
   const [rules, setRules] = useState<SyncRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningId, setRunningId] = useState<number | null>(null);
+  const [runProgress, setRunProgress] = useState<Record<number, string>>({});
   const [message, setMessage] = useState("");
 
   const load = async () => {
@@ -24,16 +40,35 @@ export default function Rules() {
     load();
   }, []);
 
-  const runNow = async (id: number) => {
-    setRunningId(id);
+  const runNow = async (ruleId: number) => {
+    setRunningId(ruleId);
     setMessage("");
+    setRunProgress((p) => ({ ...p, [ruleId]: "Starting…" }));
     try {
-      const run = await api.runRuleNow(id);
-      setMessage(`Run finished: ${run.status} (added ${run.tracks_added}, removed ${run.tracks_removed}, unmatched ${run.tracks_unmatched})`);
+      const started = await api.runRuleNow(ruleId);
+      let finalRun = started;
+      while (finalRun.status === "running") {
+        await new Promise((r) => setTimeout(r, 1500));
+        const runs = await api.listRuleRuns(ruleId);
+        const current = runs.find((r) => r.id === started.id);
+        if (!current) break;
+        finalRun = current;
+        const label = progressLabel(current.detail_json);
+        if (label) setRunProgress((p) => ({ ...p, [ruleId]: label }));
+      }
+      setMessage(
+        `Run ${finalRun.status}: added ${finalRun.tracks_added}, removed ${finalRun.tracks_removed}, unmatched ${finalRun.tracks_unmatched}` +
+          (finalRun.error_message ? ` — ${finalRun.error_message}` : "")
+      );
     } catch (e: any) {
       setMessage(`Run failed: ${e.message}`);
     } finally {
       setRunningId(null);
+      setRunProgress((p) => {
+        const next = { ...p };
+        delete next[ruleId];
+        return next;
+      });
     }
   };
 
@@ -109,8 +144,9 @@ export default function Rules() {
                       </label>
                     </td>
                     <td className="row-actions">
+                      <Link className="btn secondary" to={`/rules/${rule.id}`}>Edit</Link>
                       <button className="secondary" disabled={runningId === rule.id} onClick={() => runNow(rule.id)}>
-                        {runningId === rule.id ? "Running…" : "Run now"}
+                        {runningId === rule.id ? runProgress[rule.id] || "Running…" : "Run now"}
                       </button>
                       <button className="danger" onClick={() => remove(rule.id)}>Delete</button>
                     </td>

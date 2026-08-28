@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, SyncRule, SyncRun } from "../api/client";
+import { api, parseUtcDate, SyncRule, SyncRun } from "../api/client";
 import StatusBadge from "../components/StatusBadge";
 
 export default function Dashboard() {
@@ -76,7 +76,7 @@ export default function Dashboard() {
                     <td>
                       <StatusBadge status={run.status} />
                     </td>
-                    <td className="muted">{new Date(run.started_at).toLocaleString()}</td>
+                    <td className="muted">{parseUtcDate(run.started_at).toLocaleString()}</td>
                     <td>{run.tracks_added}</td>
                     <td>{run.tracks_removed}</td>
                     <td>{run.tracks_unmatched}</td>

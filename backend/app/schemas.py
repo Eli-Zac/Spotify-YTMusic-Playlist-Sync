@@ -64,6 +64,7 @@ class SyncRunRead(BaseModel):
     tracks_removed: int
     tracks_unmatched: int
     error_message: Optional[str]
+    detail_json: Optional[str] = None
 
 
 class WebhookSettings(BaseModel):

@@ -373,13 +373,15 @@ button:active:not(:disabled),
   transform: translateY(0);
 }
 
-button.secondary {
+button.secondary,
+.btn.secondary {
   background: var(--bg-elevated);
   color: var(--text-dim);
   border: 1px solid var(--border-strong);
 }
 
-button.secondary:hover:not(:disabled) {
+button.secondary:hover:not(:disabled),
+.btn.secondary:hover {
   background: var(--panel-hover);
   color: var(--text);
 }

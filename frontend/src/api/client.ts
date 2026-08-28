@@ -31,6 +31,7 @@ export interface SyncRun {
   tracks_removed: number;
   tracks_unmatched: number;
   error_message: string | null;
+  detail_json: string | null;
 }
 
 export interface ConnectionStatus {
@@ -51,6 +52,13 @@ export interface Playlist {
   name: string;
   track_count: number;
   image: string | null;
+}
+
+// Backend timestamps are naive UTC (no "Z"/offset suffix), which `new Date(...)`
+// otherwise parses as local time - shifting every displayed time by the
+// viewer's UTC offset. Force UTC interpretation before handing off to Date.
+export function parseUtcDate(iso: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);
 }
 
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
