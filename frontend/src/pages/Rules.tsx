@@ -26,44 +26,79 @@ function progressLabel(detailJson: string | null | undefined): string | null {
 export default function Rules() {
   const [rules, setRules] = useState<SyncRule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [runningId, setRunningId] = useState<number | null>(null);
+  // ruleId -> the run currently being polled, so refreshing the page can pick
+  // a still-running sync back up instead of losing all track of it.
+  const [runningRunIds, setRunningRunIds] = useState<Record<number, number>>({});
   const [runProgress, setRunProgress] = useState<Record<number, string>>({});
   const [message, setMessage] = useState("");
 
   const load = async () => {
     setLoading(true);
-    setRules(await api.listRules());
+    const [ruleList, recentRuns] = await Promise.all([api.listRules(), api.listRecentRuns()]);
+    setRules(ruleList);
     setLoading(false);
+
+    // Resume polling for any rule whose most recent run is still "running" -
+    // e.g. after a page refresh mid-sync - instead of showing a stale "Run now".
+    const latestPerRule = new Map<number, (typeof recentRuns)[number]>();
+    for (const run of recentRuns) {
+      if (!latestPerRule.has(run.rule_id)) latestPerRule.set(run.rule_id, run);
+    }
+    for (const run of latestPerRule.values()) {
+      if (run.status === "running" && !(run.rule_id in runningRunIds)) {
+        pollRun(run.rule_id, run.id);
+      }
+    }
   };
 
   useEffect(() => {
     load();
   }, []);
 
+  const pollRun = async (ruleId: number, runId: number) => {
+    setRunningRunIds((m) => ({ ...m, [ruleId]: runId }));
+    try {
+      let status = "running";
+      while (status === "running") {
+        const runs = await api.listRuleRuns(ruleId);
+        const current = runs.find((r) => r.id === runId);
+        if (!current) break;
+        status = current.status;
+        if (status === "running") {
+          const label = progressLabel(current.detail_json);
+          setRunProgress((p) => ({ ...p, [ruleId]: label || "Running…" }));
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+        setMessage(
+          `Run ${current.status}: added ${current.tracks_added}, removed ${current.tracks_removed}, unmatched ${current.tracks_unmatched}` +
+            (current.error_message ? ` — ${current.error_message}` : "")
+        );
+      }
+    } catch (e: any) {
+      setMessage(`Couldn't check run status: ${e.message}`);
+    } finally {
+      setRunningRunIds((m) => {
+        const next = { ...m };
+        delete next[ruleId];
+        return next;
+      });
+      setRunProgress((p) => {
+        const next = { ...p };
+        delete next[ruleId];
+        return next;
+      });
+    }
+  };
+
   const runNow = async (ruleId: number) => {
-    setRunningId(ruleId);
     setMessage("");
     setRunProgress((p) => ({ ...p, [ruleId]: "Starting…" }));
     try {
       const started = await api.runRuleNow(ruleId);
-      let finalRun = started;
-      while (finalRun.status === "running") {
-        await new Promise((r) => setTimeout(r, 1500));
-        const runs = await api.listRuleRuns(ruleId);
-        const current = runs.find((r) => r.id === started.id);
-        if (!current) break;
-        finalRun = current;
-        const label = progressLabel(current.detail_json);
-        if (label) setRunProgress((p) => ({ ...p, [ruleId]: label }));
-      }
-      setMessage(
-        `Run ${finalRun.status}: added ${finalRun.tracks_added}, removed ${finalRun.tracks_removed}, unmatched ${finalRun.tracks_unmatched}` +
-          (finalRun.error_message ? ` — ${finalRun.error_message}` : "")
-      );
+      await pollRun(ruleId, started.id);
     } catch (e: any) {
       setMessage(`Run failed: ${e.message}`);
-    } finally {
-      setRunningId(null);
       setRunProgress((p) => {
         const next = { ...p };
         delete next[ruleId];
@@ -145,8 +180,12 @@ export default function Rules() {
                     </td>
                     <td className="row-actions">
                       <Link className="btn secondary" to={`/rules/${rule.id}`}>Edit</Link>
-                      <button className="secondary" disabled={runningId === rule.id} onClick={() => runNow(rule.id)}>
-                        {runningId === rule.id ? runProgress[rule.id] || "Running…" : "Run now"}
+                      <button
+                        className="secondary"
+                        disabled={rule.id in runningRunIds}
+                        onClick={() => runNow(rule.id)}
+                      >
+                        {rule.id in runningRunIds ? runProgress[rule.id] || "Running…" : "Run now"}
                       </button>
                       <button className="danger" onClick={() => remove(rule.id)}>Delete</button>
                     </td>

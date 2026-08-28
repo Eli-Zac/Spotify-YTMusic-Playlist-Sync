@@ -81,7 +81,6 @@ nav.sidebar {
 main {
   flex: 1;
   padding: 40px 48px 64px;
-  max-width: 1040px;
   min-width: 0;
 }
 
