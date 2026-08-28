@@ -97,7 +97,11 @@ def get_client(session: Session) -> YTMusic:
         token.update(refreshed)
         token = store_token(session, token)
 
-    return YTMusic(auth=_for_ytmusicapi(token), oauth_credentials=creds)
+    # Headless server request with no browser/cookie locale hints - ytmusicapi
+    # otherwise sends no "gl" (country) field in the request context at all.
+    # Experimental: try pinning one to see if that's related to the generic
+    # "invalid argument" 400 on browse calls.
+    return YTMusic(auth=_for_ytmusicapi(token), oauth_credentials=creds, location="US")
 
 
 def list_playlists(yt: YTMusic) -> list[dict]:

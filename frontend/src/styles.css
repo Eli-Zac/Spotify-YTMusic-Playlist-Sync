@@ -311,6 +311,12 @@ tbody tr:last-child td {
   text-decoration: none;
 }
 
+.row-title,
+.playlist-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .row-title:hover {
   color: var(--accent-strong);
 }
