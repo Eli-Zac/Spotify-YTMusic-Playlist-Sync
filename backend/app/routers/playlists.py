@@ -19,3 +19,7 @@ def list_playlists(service: ServiceName, session: Session = Depends(get_session)
         return ytmusic_client.list_playlists(yt)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Couldn't load {service.value} playlists: {exc}"
+        ) from exc

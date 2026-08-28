@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
@@ -45,7 +46,7 @@ def complete_device_auth(session: Session) -> dict:
     return {"connected": True}
 
 
-def store_token(session: Session, token: dict, account_label: str = "") -> None:
+def store_token(session: Session, token: dict, account_label: str = "") -> dict:
     cred = session.exec(select(Credential).where(Credential.service == ServiceName.ytmusic)).first()
     if cred is None:
         cred = Credential(service=ServiceName.ytmusic, access_token_enc="")
@@ -54,12 +55,18 @@ def store_token(session: Session, token: dict, account_label: str = "") -> None:
         cred.refresh_token_enc = encrypt(token["refresh_token"])
     expires_at = datetime.utcnow() + timedelta(seconds=token.get("expires_in", 3600))
     cred.expires_at = expires_at
+    # ytmusicapi's Token dataclass reads "expires_at" (a unix timestamp) directly out
+    # of this dict and defaults it to 0 when absent, which makes every access_token
+    # read look expired and forces a synchronous refresh on every single API call.
+    # Google's token endpoint only ever returns "expires_in", so compute it ourselves.
+    token = {**token, "expires_at": int(time.time()) + token.get("expires_in", 3600)}
     cred.extra_enc = encrypt(json.dumps(token))
     if account_label:
         cred.account_label = account_label
     cred.updated_at = datetime.utcnow()
     session.add(cred)
     session.commit()
+    return token
 
 
 def get_credential(session: Session) -> Credential | None:
@@ -72,12 +79,14 @@ def get_client(session: Session) -> YTMusic:
         raise RuntimeError("YT Music is not connected. Connect it from Settings.")
 
     token = json.loads(decrypt(cred.extra_enc))
+    if "expires_at" not in token:
+        token["expires_at"] = int(cred.expires_at.timestamp()) if cred.expires_at else int(time.time())
     creds = build_oauth_credentials()
 
     if cred.expires_at and cred.expires_at <= datetime.utcnow() + timedelta(seconds=30):
         refreshed = creds.refresh_token(token["refresh_token"])
         token.update(refreshed)
-        store_token(session, token)
+        token = store_token(session, token)
 
     return YTMusic(auth=token, oauth_credentials=creds)
 
