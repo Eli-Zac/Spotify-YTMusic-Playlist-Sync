@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, Playlist, ServiceName } from "../api/client";
 
+function extractPlaylistId(value: string): string {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    const listParam = url.searchParams.get("list");
+    if (listParam) return listParam;
+    const pathMatch = url.pathname.match(/\/playlist\/([A-Za-z0-9]+)/);
+    if (pathMatch) return pathMatch[1];
+  } catch {
+    // not a URL - fall through and treat the input as a bare ID
+  }
+  return trimmed;
+}
+
 interface Props {
   service: ServiceName;
   playlistId: string;
@@ -15,7 +29,7 @@ export default function PlaylistPicker({ service, playlistId, playlistName, onCh
   const [error, setError] = useState("");
   const [query, setQuery] = useState(playlistName || "");
   const [open, setOpen] = useState(false);
-  const [manual, setManual] = useState(false);
+  const [manual, setManual] = useState(service === "ytmusic");
   const [highlight, setHighlight] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -26,7 +40,9 @@ export default function PlaylistPicker({ service, playlistId, playlistName, onCh
   useEffect(() => {
     setPlaylists([]);
     setStatus("idle");
-    setManual(false);
+    // YT Music's playlist search is currently broken server-side; default
+    // straight to manual ID entry there instead of a picker that always errors.
+    setManual(service === "ytmusic");
   }, [service]);
 
   useEffect(() => {
@@ -85,12 +101,14 @@ export default function PlaylistPicker({ service, playlistId, playlistName, onCh
       <div className="picker">
         <input
           value={playlistId}
-          onChange={(e) => onChange(e.target.value, playlistName)}
-          placeholder="Playlist ID"
+          onChange={(e) => onChange(extractPlaylistId(e.target.value), playlistName)}
+          placeholder={service === "ytmusic" ? "Paste playlist link or ID" : "Playlist ID"}
         />
-        <button type="button" className="picker-toggle" onClick={() => setManual(false)}>
-          Search playlists instead
-        </button>
+        {service !== "ytmusic" && (
+          <button type="button" className="picker-toggle" onClick={() => setManual(false)}>
+            Search playlists instead
+          </button>
+        )}
       </div>
     );
   }
