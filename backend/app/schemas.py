@@ -76,3 +76,10 @@ class ConnectionStatus(BaseModel):
     service: ServiceName
     connected: bool
     account_label: str = ""
+
+
+class PlaylistRead(BaseModel):
+    id: str
+    name: str
+    track_count: int = 0
+    image: Optional[str] = None

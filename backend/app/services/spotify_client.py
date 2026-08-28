@@ -64,6 +64,25 @@ def get_client(session: Session) -> spotipy.Spotify:
     return spotipy.Spotify(auth=access_token)
 
 
+def list_playlists(sp: spotipy.Spotify) -> list[dict]:
+    """Returns the connected user's playlists: {id, name, track_count, image}."""
+    playlists = []
+    results = sp.current_user_playlists(limit=50)
+    while results:
+        for p in results["items"]:
+            images = p.get("images") or []
+            playlists.append(
+                {
+                    "id": p["id"],
+                    "name": p.get("name", ""),
+                    "track_count": (p.get("tracks") or {}).get("total", 0),
+                    "image": images[0]["url"] if images else None,
+                }
+            )
+        results = sp.next(results) if results.get("next") else None
+    return playlists
+
+
 def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> list[dict]:
     """Returns normalized track dicts: {id, isrc, title, artist}."""
     tracks = []

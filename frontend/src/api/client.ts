@@ -45,6 +45,13 @@ export interface WebhookSettings {
   notify_on: "failure" | "always";
 }
 
+export interface Playlist {
+  id: string;
+  name: string;
+  track_count: number;
+  image: string | null;
+}
+
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -71,6 +78,7 @@ export const api = {
   listRecentRuns: () => req<SyncRun[]>("/api/runs"),
 
   connections: () => req<ConnectionStatus[]>("/api/settings/connections"),
+  listPlaylists: (service: ServiceName) => req<Playlist[]>(`/api/playlists/${service}`),
   getWebhook: () => req<WebhookSettings>("/api/settings/webhook"),
   setWebhook: (data: WebhookSettings) =>
     req<WebhookSettings>("/api/settings/webhook", { method: "PUT", body: JSON.stringify(data) }),

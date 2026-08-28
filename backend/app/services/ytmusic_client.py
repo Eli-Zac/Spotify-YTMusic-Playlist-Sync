@@ -82,6 +82,24 @@ def get_client(session: Session) -> YTMusic:
     return YTMusic(auth=token, oauth_credentials=creds)
 
 
+def list_playlists(yt: YTMusic) -> list[dict]:
+    """Returns the connected user's playlists: {id, name, track_count, image}."""
+    playlists = []
+    for p in yt.get_library_playlists(limit=None):
+        if not p.get("playlistId"):
+            continue
+        thumbnails = p.get("thumbnails") or []
+        playlists.append(
+            {
+                "id": p["playlistId"],
+                "name": p.get("title", ""),
+                "track_count": p.get("count") or 0,
+                "image": thumbnails[-1]["url"] if thumbnails else None,
+            }
+        )
+    return playlists
+
+
 def fetch_playlist_tracks(yt: YTMusic, playlist_id: str) -> list[dict]:
     playlist = yt.get_playlist(playlist_id, limit=None)
     tracks = []
