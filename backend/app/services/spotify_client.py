@@ -119,10 +119,14 @@ def get_client(session: Session) -> spotipy.Spotify:
     # spotipy's default retry behavior actually *sleeps* the calling thread for
     # the server's Retry-After duration on a 429 (observed: ~23.5 hours), up to
     # 3 times - a background sync would look "stuck" for days rather than fail.
-    # Disable retries so a rate limit raises SpotifyException immediately
-    # instead; there's nothing productive to do but surface it and let the
-    # user retry later anyway.
-    return spotipy.Spotify(auth=access_token, retries=0, status_retries=0)
+    # Excluding 429 from the urllib3-level retry forcelist stops that (the raw
+    # response comes straight back to us instead), while leaving genuinely
+    # transient 5xx errors to still self-heal via spotipy's built-in retry.
+    # Setting retries=0 instead would also stop the sleep, but urllib3 raises
+    # a bare RetryError before the response - and its Retry-After header -
+    # ever reaches us, so we couldn't tell a 1-second throttle from an hours-
+    # long one. _call() below does our own short, bounded retry on top.
+    return spotipy.Spotify(auth=access_token, status_forcelist=(500, 502, 503, 504))
 
 
 def list_playlists(sp: spotipy.Spotify) -> list[dict]:

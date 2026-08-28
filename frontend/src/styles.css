@@ -1119,6 +1119,29 @@ select {
   box-shadow: none;
 }
 
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  transform: none;
+  box-shadow: none;
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .modal-close:hover {
   color: var(--text);
   transform: none;
