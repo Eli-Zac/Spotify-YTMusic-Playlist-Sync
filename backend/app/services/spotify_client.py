@@ -17,6 +17,20 @@ logger = logging.getLogger(__name__)
 SCOPE = "playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private"
 
 
+def friendly_error(exc: Exception) -> str | None:
+    """Returns a clear message for a Spotify rate limit, or None for anything else."""
+    if not isinstance(exc, spotipy.SpotifyException) or exc.http_status != 429:
+        return None
+    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+    if retry_after:
+        try:
+            hours = int(retry_after) / 3600
+            return f"Spotify rate limit reached. Try again in about {hours:.1f} hour(s)."
+        except ValueError:
+            pass
+    return "Spotify rate limit reached. Try again later."
+
+
 def build_oauth() -> SpotifyOAuth:
     return SpotifyOAuth(
         client_id=settings.spotify_client_id,
@@ -64,7 +78,13 @@ def get_client(session: Session) -> spotipy.Spotify:
         store_token(session, new_token)
         access_token = new_token["access_token"]
 
-    return spotipy.Spotify(auth=access_token)
+    # spotipy's default retry behavior actually *sleeps* the calling thread for
+    # the server's Retry-After duration on a 429 (observed: ~23.5 hours), up to
+    # 3 times - a background sync would look "stuck" for days rather than fail.
+    # Disable retries so a rate limit raises SpotifyException immediately
+    # instead; there's nothing productive to do but surface it and let the
+    # user retry later anyway.
+    return spotipy.Spotify(auth=access_token, retries=0, status_retries=0)
 
 
 def list_playlists(sp: spotipy.Spotify) -> list[dict]:

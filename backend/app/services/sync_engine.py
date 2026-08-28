@@ -134,9 +134,10 @@ def execute_run(session: Session, rule: SyncRule, run: SyncRun) -> SyncRun:
                 ytmusic_client.raise_if_auth_failure(session, exc)
             except ytmusic_client.YTMusicAuthExpired as auth_exc:
                 exc = auth_exc
-        progress.log(f"Error: {exc}")
+        message = spotify_client.friendly_error(exc) or str(exc)
+        progress.log(f"Error: {message}")
         run.status = RunStatus.failed
-        run.error_message = str(exc)
+        run.error_message = message
     finally:
         _cancel_requested.discard(run.id)
         run.finished_at = datetime.utcnow()

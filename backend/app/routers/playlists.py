@@ -24,6 +24,7 @@ def list_playlists(service: ServiceName, session: Session = Depends(get_session)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        message = spotify_client.friendly_error(exc) or str(exc)
         raise HTTPException(
-            status_code=400, detail=f"Couldn't load {service.value} playlists: {exc}"
+            status_code=400, detail=f"Couldn't load {service.value} playlists: {message}"
         ) from exc
