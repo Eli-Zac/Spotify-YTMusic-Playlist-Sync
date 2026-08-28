@@ -98,6 +98,24 @@ def create_run(session: Session, rule: SyncRule) -> SyncRun:
     return run
 
 
+def mark_orphaned_runs(session: Session) -> int:
+    """Any run still "running" when the process starts belonged to a previous
+    process instance (e.g. killed by a redeploy) - nothing is left alive to ever
+    finish or cancel it, so it would otherwise sit stuck forever. Call once at
+    startup."""
+    from sqlmodel import select
+
+    orphaned = session.exec(select(SyncRun).where(SyncRun.status == RunStatus.running)).all()
+    for run in orphaned:
+        run.status = RunStatus.failed
+        run.error_message = "Interrupted by a server restart before it could finish."
+        run.finished_at = datetime.utcnow()
+        session.add(run)
+    if orphaned:
+        session.commit()
+    return len(orphaned)
+
+
 def execute_run(session: Session, rule: SyncRule, run: SyncRun) -> SyncRun:
     progress = _Progress(session, run)
     try:
@@ -162,13 +180,16 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress)
             f"{rule.dest_service.value}. Create it manually first, then re-run the sync."
         )
 
+    progress.check_cancelled()
     progress.set_phase("fetching")
     progress.log(f"Fetching '{rule.source_playlist_name or rule.source_playlist_id}' from {rule.source_service.value}…")
     progress.flush(force=True)
     source_tracks = src_mod.fetch_playlist_tracks(src_client, rule.source_playlist_id)
+    progress.check_cancelled()
     progress.log(f"Fetching '{rule.dest_playlist_name or rule.dest_playlist_id}' from {rule.dest_service.value}…")
     progress.flush(force=True)
     dest_tracks = dst_mod.fetch_playlist_tracks(dst_client, rule.dest_playlist_id)
+    progress.check_cancelled()
 
     same_service = rule.source_service == rule.dest_service
     dest_isrc_index = matcher.build_isrc_index(dest_tracks)

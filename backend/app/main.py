@@ -4,17 +4,24 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from sqlmodel import Session
 
 from app import scheduler
-from app.database import init_db
+from app.database import engine, init_db
 from app.routers import auth_spotify, auth_ytmusic, playlists, rules, runs, settings as settings_router
+from app.services.sync_engine import mark_orphaned_runs
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    with Session(engine) as session:
+        orphaned = mark_orphaned_runs(session)
+        if orphaned:
+            logger.warning("Marked %d run(s) left stuck at 'running' by a previous process as failed", orphaned)
     scheduler.start()
     yield
     scheduler.shutdown()
