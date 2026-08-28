@@ -4,6 +4,8 @@ import Dashboard from "./pages/Dashboard";
 import RuleEditor from "./pages/RuleEditor";
 import Rules from "./pages/Rules";
 import Settings from "./pages/Settings";
+import RunToasts from "./runs/RunToasts";
+import { RunsProvider } from "./runs/RunsContext";
 
 const DashboardIcon = () => (
   <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
@@ -37,37 +39,40 @@ export default function App() {
   const location = useLocation();
 
   return (
-    <div className="app">
-      <nav className="sidebar">
-        <div className="sidebar-brand">
-          <Logo />
-        </div>
-        <div className="sidebar-nav">
-          <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-            <DashboardIcon />
-            Dashboard
-          </NavLink>
-          <NavLink to="/rules" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-            <RulesIcon />
-            Sync Rules
-          </NavLink>
-          <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-            <SettingsIcon />
-            Settings
-          </NavLink>
-        </div>
-      </nav>
-      <main>
-        <div key={location.pathname} className="page-enter">
-          <Routes location={location}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/rules" element={<Rules />} />
-            <Route path="/rules/new" element={<RuleEditor />} />
-            <Route path="/rules/:id" element={<RuleEditor />} />
-            <Route path="/settings" element={<Settings />} />
-          </Routes>
-        </div>
-      </main>
-    </div>
+    <RunsProvider>
+      <div className="app">
+        <nav className="sidebar">
+          <div className="sidebar-brand">
+            <Logo />
+          </div>
+          <div className="sidebar-nav">
+            <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <DashboardIcon />
+              Dashboard
+            </NavLink>
+            <NavLink to="/rules" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <RulesIcon />
+              Sync Rules
+            </NavLink>
+            <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <SettingsIcon />
+              Settings
+            </NavLink>
+          </div>
+        </nav>
+        <main>
+          <div key={location.pathname} className="page-enter">
+            <Routes location={location}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/rules" element={<Rules />} />
+              <Route path="/rules/new" element={<RuleEditor />} />
+              <Route path="/rules/:id" element={<RuleEditor />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </div>
+        </main>
+        <RunToasts />
+      </div>
+    </RunsProvider>
   );
 }

@@ -17,15 +17,67 @@ logger = logging.getLogger(__name__)
 # a commit per track on a 700-song playlist.
 _PROGRESS_WRITE_INTERVAL = 1.5
 
+# Cap how many log lines we keep/serialize per run - a live tail, not a full
+# transcript, so a 700-track sync doesn't grow detail_json without bound.
+_LOG_TAIL = 300
+
+# Run ids with a cancellation requested. In-memory only (single-process app);
+# background jobs check this cooperatively at safe points in the loop, since
+# an in-flight external API call can't be interrupted mid-request.
+_cancel_requested: set[int] = set()
+
 
 class SyncError(Exception):
     pass
 
 
-def _set_progress(session: Session, run: SyncRun, phase: str, current: int, total: int) -> None:
-    run.detail_json = json.dumps({"phase": phase, "current": current, "total": total})
-    session.add(run)
-    session.commit()
+class SyncCancelled(Exception):
+    pass
+
+
+def request_cancel(run_id: int) -> None:
+    _cancel_requested.add(run_id)
+
+
+class _Progress:
+    def __init__(self, session: Session, run: SyncRun):
+        self.session = session
+        self.run = run
+        self.log_lines: list[str] = []
+        self.phase = "starting"
+        self.current = 0
+        self.total = 0
+        self._last_write = 0.0
+
+    def log(self, line: str) -> None:
+        self.log_lines.append(line)
+        if len(self.log_lines) > _LOG_TAIL:
+            self.log_lines = self.log_lines[-_LOG_TAIL:]
+
+    def set_phase(self, phase: str, current: int = 0, total: int = 0) -> None:
+        self.phase = phase
+        self.current = current
+        self.total = total
+
+    def check_cancelled(self) -> None:
+        if self.run.id in _cancel_requested:
+            raise SyncCancelled()
+
+    def flush(self, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._last_write < _PROGRESS_WRITE_INTERVAL:
+            return
+        self._last_write = now
+        self.run.detail_json = json.dumps(
+            {
+                "phase": self.phase,
+                "current": self.current,
+                "total": self.total,
+                "log": self.log_lines,
+            }
+        )
+        self.session.add(self.run)
+        self.session.commit()
 
 
 def _get_client(session: Session, service: ServiceName):
@@ -47,9 +99,16 @@ def create_run(session: Session, rule: SyncRule) -> SyncRun:
 
 
 def execute_run(session: Session, rule: SyncRule, run: SyncRun) -> SyncRun:
+    progress = _Progress(session, run)
     try:
-        _do_run(session, rule, run)
+        _do_run(session, rule, run, progress)
         run.status = RunStatus.success if run.tracks_unmatched == 0 else RunStatus.partial
+        progress.set_phase("done", progress.total, progress.total)
+        progress.log("Done.")
+    except SyncCancelled:
+        progress.log("Cancelled.")
+        run.status = RunStatus.cancelled
+        run.error_message = "Cancelled by user."
     except Exception as exc:  # noqa: BLE001
         logger.exception("Sync failed for rule %s", rule.id)
         if ServiceName.ytmusic in (rule.source_service, rule.dest_service):
@@ -57,10 +116,13 @@ def execute_run(session: Session, rule: SyncRule, run: SyncRun) -> SyncRun:
                 ytmusic_client.raise_if_auth_failure(session, exc)
             except ytmusic_client.YTMusicAuthExpired as auth_exc:
                 exc = auth_exc
+        progress.log(f"Error: {exc}")
         run.status = RunStatus.failed
         run.error_message = str(exc)
     finally:
+        _cancel_requested.discard(run.id)
         run.finished_at = datetime.utcnow()
+        progress.flush(force=True)
         session.add(run)
         session.commit()
         session.refresh(run)
@@ -87,7 +149,7 @@ def run_by_id_in_background(rule_id: int, run_id: int) -> None:
         execute_run(session, rule, run)
 
 
-def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
+def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress) -> None:
     src_mod = _module(rule.source_service)
     dst_mod = _module(rule.dest_service)
 
@@ -100,8 +162,12 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
             f"{rule.dest_service.value}. Create it manually first, then re-run the sync."
         )
 
-    _set_progress(session, run, "fetching", 0, 0)
+    progress.set_phase("fetching")
+    progress.log(f"Fetching '{rule.source_playlist_name or rule.source_playlist_id}' from {rule.source_service.value}…")
+    progress.flush(force=True)
     source_tracks = src_mod.fetch_playlist_tracks(src_client, rule.source_playlist_id)
+    progress.log(f"Fetching '{rule.dest_playlist_name or rule.dest_playlist_id}' from {rule.dest_service.value}…")
+    progress.flush(force=True)
     dest_tracks = dst_mod.fetch_playlist_tracks(dst_client, rule.dest_playlist_id)
 
     same_service = rule.source_service == rule.dest_service
@@ -111,33 +177,38 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
     unmatched = 0
 
     total = len(source_tracks)
-    last_write = time.monotonic()
+    progress.log(f"Matching {total} track(s)…")
     for i, src_track in enumerate(source_tracks, start=1):
+        progress.check_cancelled()
+        label = f"{src_track.get('title', '?')} — {src_track.get('artist', '?')}"
         existing = matcher.find_match(src_track, dest_tracks, dest_isrc_index)
         if existing:
-            continue
-
-        if same_service:
+            pass
+        elif same_service:
             to_add_ids.append(src_track["id"])
+            progress.log(f"+ {label}")
         else:
             found = dst_mod.search_track(dst_client, src_track["title"], src_track["artist"])
             if found:
                 to_add_ids.append(found["id"])
                 dest_tracks.append(found)  # avoid re-adding duplicates within this run
+                progress.log(f"+ {label}")
             else:
                 unmatched += 1
+                progress.log(f"? no match: {label}")
 
-        now = time.monotonic()
-        if now - last_write >= _PROGRESS_WRITE_INTERVAL or i == total:
-            _set_progress(session, run, "matching", i, total)
-            last_write = now
+        progress.set_phase("matching", i, total)
+        progress.flush(force=(i == total))
 
     if to_add_ids:
-        _set_progress(session, run, "adding", 0, len(to_add_ids))
+        progress.set_phase("adding", 0, len(to_add_ids))
+        progress.log(f"Adding {len(to_add_ids)} track(s) to destination…")
+        progress.flush(force=True)
         dst_mod.add_tracks(dst_client, rule.dest_playlist_id, to_add_ids)
 
     removed_count = 0
     if rule.mode == SyncMode.mirror:
+        progress.check_cancelled()
         source_isrc_index = matcher.build_isrc_index(source_tracks)
         to_remove_ids: list[str] = []
         for dest_track in list(dest_tracks):
@@ -145,16 +216,12 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun) -> None:
             if not match and dest_track["id"] not in to_add_ids:
                 to_remove_ids.append(dest_track["id"])
         if to_remove_ids:
-            _set_progress(session, run, "removing", 0, len(to_remove_ids))
+            progress.set_phase("removing", 0, len(to_remove_ids))
+            progress.log(f"Removing {len(to_remove_ids)} track(s) from destination…")
+            progress.flush(force=True)
             dst_mod.remove_tracks(dst_client, rule.dest_playlist_id, to_remove_ids)
         removed_count = len(to_remove_ids)
 
     run.tracks_added = len(to_add_ids)
     run.tracks_removed = removed_count
     run.tracks_unmatched = unmatched
-    run.detail_json = json.dumps(
-        {
-            "source_track_count": len(source_tracks),
-            "dest_track_count_before": len(dest_tracks) - len(to_add_ids),
-        }
-    )

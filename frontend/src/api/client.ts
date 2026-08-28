@@ -1,7 +1,43 @@
 export type ServiceName = "spotify" | "ytmusic";
 export type SyncMode = "mirror" | "additive";
 export type ScheduleType = "interval" | "cron";
-export type RunStatus = "success" | "partial" | "failed" | "running";
+export type RunStatus = "success" | "partial" | "failed" | "running" | "cancelled";
+
+export interface RunProgress {
+  phase: string;
+  current: number;
+  total: number;
+  log: string[];
+}
+
+export function parseRunProgress(detailJson: string | null | undefined): RunProgress | null {
+  if (!detailJson) return null;
+  try {
+    const d = JSON.parse(detailJson);
+    if (!d.phase) return null;
+    return { phase: d.phase, current: d.current || 0, total: d.total || 0, log: d.log || [] };
+  } catch {
+    return null;
+  }
+}
+
+export function progressLabel(p: RunProgress | null): string {
+  if (!p) return "Running…";
+  switch (p.phase) {
+    case "fetching":
+      return "Fetching playlists…";
+    case "matching":
+      return p.total ? `Matching ${p.current}/${p.total}…` : "Matching…";
+    case "adding":
+      return `Adding ${p.total} track${p.total === 1 ? "" : "s"}…`;
+    case "removing":
+      return `Removing ${p.total} track${p.total === 1 ? "" : "s"}…`;
+    case "done":
+      return "Finishing…";
+    default:
+      return "Running…";
+  }
+}
 
 export interface SyncRule {
   id: number;
@@ -85,6 +121,7 @@ export const api = {
   listRuleRuns: (id: number) => req<SyncRun[]>(`/api/rules/${id}/runs`),
 
   listRecentRuns: () => req<SyncRun[]>("/api/runs"),
+  cancelRun: (runId: number) => req<SyncRun>(`/api/runs/${runId}/cancel`, { method: "POST" }),
 
   connections: () => req<ConnectionStatus[]>("/api/settings/connections"),
   listPlaylists: (service: ServiceName) => req<Playlist[]>(`/api/playlists/${service}`),

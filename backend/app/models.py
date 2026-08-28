@@ -63,6 +63,7 @@ class RunStatus(str, Enum):
     partial = "partial"
     failed = "failed"
     running = "running"
+    cancelled = "cancelled"
 
 
 class SyncRun(SQLModel, table=True):

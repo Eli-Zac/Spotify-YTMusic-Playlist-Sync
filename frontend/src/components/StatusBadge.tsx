@@ -5,6 +5,7 @@ const CLASS: Record<RunStatus, string> = {
   partial: "warn",
   failed: "err",
   running: "muted",
+  cancelled: "muted",
 };
 
 export default function StatusBadge({ status }: { status: RunStatus }) {
