@@ -119,14 +119,14 @@ def get_client(session: Session) -> spotipy.Spotify:
     # spotipy's default retry behavior actually *sleeps* the calling thread for
     # the server's Retry-After duration on a 429 (observed: ~23.5 hours), up to
     # 3 times - a background sync would look "stuck" for days rather than fail.
-    # Excluding 429 from the urllib3-level retry forcelist stops that (the raw
-    # response comes straight back to us instead), while leaving genuinely
-    # transient 5xx errors to still self-heal via spotipy's built-in retry.
-    # Setting retries=0 instead would also stop the sleep, but urllib3 raises
-    # a bare RetryError before the response - and its Retry-After header -
-    # ever reaches us, so we couldn't tell a 1-second throttle from an hours-
-    # long one. _call() below does our own short, bounded retry on top.
-    return spotipy.Spotify(auth=access_token, status_forcelist=(500, 502, 503, 504))
+    # Excluding 429 from status_forcelist does NOT stop this: urllib3's
+    # Retry.is_retry() hardcodes 413/429/503-with-Retry-After as always
+    # retryable whenever total retries is non-zero, regardless of
+    # status_forcelist. The only way to actually disable it is total=0 (i.e.
+    # retries=0 here), which makes urllib3 skip its retry path entirely and
+    # hand the raw 429 response - headers included - straight back to us.
+    # _call() below does its own short, bounded retry on top of that.
+    return spotipy.Spotify(auth=access_token, retries=0, status_retries=0)
 
 
 def list_playlists(sp: spotipy.Spotify) -> list[dict]:
