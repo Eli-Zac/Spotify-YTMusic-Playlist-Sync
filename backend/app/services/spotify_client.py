@@ -19,8 +19,10 @@ SCOPE = "playlist-read-private playlist-read-collaborative playlist-modify-publi
 # A cross-service sync makes one Spotify search call per unmatched track -
 # on a 700+ track playlist that's 700+ back-to-back requests, which is
 # enough to trip Spotify's burst rate limit even on a brand-new app.
-# Space calls out a bit so we don't self-inflict a 429.
-_MIN_CALL_INTERVAL = 0.1
+# Space calls out a bit so we don't self-inflict a 429. 100ms (10 req/s)
+# still wasn't enough headroom for a standard (non-extended-quota) app in
+# practice, so this is deliberately conservative.
+_MIN_CALL_INTERVAL = 0.3
 _last_call_at = 0.0
 
 # On a 429, spotipy's default retry sleeps the thread for the full
