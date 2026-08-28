@@ -16,6 +16,44 @@ logger = logging.getLogger(__name__)
 
 SCOPE = "playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private"
 
+# A cross-service sync makes one Spotify search call per unmatched track -
+# on a 700+ track playlist that's 700+ back-to-back requests, which is
+# enough to trip Spotify's burst rate limit even on a brand-new app.
+# Space calls out a bit so we don't self-inflict a 429.
+_MIN_CALL_INTERVAL = 0.1
+_last_call_at = 0.0
+
+# On a 429, spotipy's default retry sleeps the thread for the full
+# Retry-After header (which can be hours). That's fine to wait out
+# ourselves for a short, transient throttle, but not worth blocking a
+# background job for - beyond this, surface the error instead.
+_MAX_RETRY_SLEEP = 10
+_MAX_ATTEMPTS = 3
+
+
+def _throttle() -> None:
+    global _last_call_at
+    wait = _last_call_at + _MIN_CALL_INTERVAL - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    _last_call_at = time.monotonic()
+
+
+def _call(fn, *args, **kwargs):
+    """Calls a spotipy method, retrying briefly on short 429s (spotipy itself
+    has retries disabled - see get_client) and re-raising anything else."""
+    for attempt in range(_MAX_ATTEMPTS):
+        _throttle()
+        try:
+            return fn(*args, **kwargs)
+        except spotipy.SpotifyException as exc:
+            if exc.http_status != 429 or attempt == _MAX_ATTEMPTS - 1:
+                raise
+            retry_after = int((exc.headers or {}).get("Retry-After", 0) or 0)
+            if retry_after > _MAX_RETRY_SLEEP:
+                raise
+            time.sleep(max(retry_after, 1))
+
 
 def friendly_error(exc: Exception) -> str | None:
     """Returns a clear message for a Spotify rate limit, or None for anything else."""
@@ -90,7 +128,7 @@ def get_client(session: Session) -> spotipy.Spotify:
 def list_playlists(sp: spotipy.Spotify) -> list[dict]:
     """Returns the connected user's playlists: {id, name, track_count, image}."""
     playlists = []
-    results = sp.current_user_playlists(limit=50)
+    results = _call(sp.current_user_playlists, limit=50)
     while results:
         for p in results["items"]:
             images = p.get("images") or []
@@ -99,7 +137,7 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
             # call fetch_playlist_tracks uses for actual syncing - reports the
             # real count.
             try:
-                items = sp.playlist_items(p["id"], fields="total", limit=1, additional_types=("track",))
+                items = _call(sp.playlist_items, p["id"], fields="total", limit=1, additional_types=("track",))
                 track_count = items.get("total") or 0
             except spotipy.SpotifyException as exc:
                 logger.warning(
@@ -114,7 +152,7 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
                     "image": images[0]["url"] if images else None,
                 }
             )
-        results = sp.next(results) if results.get("next") else None
+        results = _call(sp.next, results) if results.get("next") else None
     return playlists
 
 
@@ -126,7 +164,7 @@ def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str, on_page=None) -
     through them takes a while.
     """
     tracks = []
-    results = sp.playlist_items(playlist_id, additional_types=["track"])
+    results = _call(sp.playlist_items, playlist_id, additional_types=["track"])
     total = results.get("total") or 0
     while results:
         for item in results["items"]:
@@ -144,13 +182,13 @@ def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str, on_page=None) -
             )
         if on_page:
             on_page(len(tracks), total)
-        results = sp.next(results) if results.get("next") else None
+        results = _call(sp.next, results) if results.get("next") else None
     return tracks
 
 
 def playlist_exists(sp: spotipy.Spotify, playlist_id: str) -> bool:
     try:
-        sp.playlist(playlist_id, fields="id")
+        _call(sp.playlist, playlist_id, fields="id")
         return True
     except spotipy.SpotifyException:
         return False
@@ -158,17 +196,17 @@ def playlist_exists(sp: spotipy.Spotify, playlist_id: str) -> bool:
 
 def add_tracks(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> None:
     for i in range(0, len(uris), 100):
-        sp.playlist_add_items(playlist_id, uris[i : i + 100])
+        _call(sp.playlist_add_items, playlist_id, uris[i : i + 100])
 
 
 def remove_tracks(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> None:
     for i in range(0, len(uris), 100):
-        sp.playlist_remove_all_occurrences_of_items(playlist_id, uris[i : i + 100])
+        _call(sp.playlist_remove_all_occurrences_of_items, playlist_id, uris[i : i + 100])
 
 
 def search_track(sp: spotipy.Spotify, title: str, artist: str) -> dict | None:
     query = f"track:{title} artist:{artist}"
-    res = sp.search(q=query, type="track", limit=1)
+    res = _call(sp.search, q=query, type="track", limit=1)
     items = res.get("tracks", {}).get("items", [])
     if not items:
         return None
