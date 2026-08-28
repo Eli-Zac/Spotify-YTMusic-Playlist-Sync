@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, SyncRule } from "../api/client";
+import ServiceIcon from "../components/ServiceIcon";
 
 function scheduleLabel(rule: SyncRule) {
   if (rule.schedule_type === "cron") return rule.schedule_cron || "cron";
@@ -49,52 +50,75 @@ export default function Rules() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2>Sync Rules</h2>
-        <Link className="btn" to="/rules/new">+ New Rule</Link>
+      <div className="page-head page-head-row">
+        <div>
+          <h1>Sync rules</h1>
+          <p className="page-sub">Every playlist pair kept in sync, and how often.</p>
+        </div>
+        <Link className="btn" to="/rules/new">
+          <span className="btn-plus">+</span> New rule
+        </Link>
       </div>
 
-      {message && <p className="muted">{message}</p>}
+      {message && <div className="toast">{message}</div>}
 
       <div className="card">
         {loading && <p className="muted">Loading…</p>}
         {!loading && rules.length === 0 && (
-          <p className="muted">No sync rules yet. Create one to start syncing playlists.</p>
+          <div className="empty-state">
+            <p className="muted">No sync rules yet. Create one to start syncing playlists.</p>
+            <Link className="btn" to="/rules/new">Create your first rule</Link>
+          </div>
         )}
         {rules.length > 0 && (
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Source</th>
-                <th>Destination</th>
-                <th>Mode</th>
-                <th>Schedule</th>
-                <th>Enabled</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((rule) => (
-                <tr key={rule.id}>
-                  <td><Link to={`/rules/${rule.id}`}>{rule.name}</Link></td>
-                  <td>{rule.source_service}: {rule.source_playlist_name || rule.source_playlist_id}</td>
-                  <td>{rule.dest_service}: {rule.dest_playlist_name || rule.dest_playlist_id}</td>
-                  <td>{rule.mode}</td>
-                  <td className="muted">{scheduleLabel(rule)}</td>
-                  <td>
-                    <input type="checkbox" checked={rule.enabled} onChange={() => toggle(rule)} />
-                  </td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    <button className="secondary" disabled={runningId === rule.id} onClick={() => runNow(rule.id)}>
-                      {runningId === rule.id ? "Running…" : "Run now"}
-                    </button>
-                    <button className="danger" onClick={() => remove(rule.id)}>Delete</button>
-                  </td>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Source</th>
+                  <th>Destination</th>
+                  <th>Mode</th>
+                  <th>Schedule</th>
+                  <th>Enabled</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rules.map((rule) => (
+                  <tr key={rule.id}>
+                    <td><Link to={`/rules/${rule.id}`} className="row-title">{rule.name}</Link></td>
+                    <td>
+                      <span className="playlist-cell">
+                        <ServiceIcon service={rule.source_service} />
+                        {rule.source_playlist_name || rule.source_playlist_id}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="playlist-cell">
+                        <ServiceIcon service={rule.dest_service} />
+                        {rule.dest_playlist_name || rule.dest_playlist_id}
+                      </span>
+                    </td>
+                    <td><span className="mode-pill">{rule.mode}</span></td>
+                    <td className="muted">{scheduleLabel(rule)}</td>
+                    <td>
+                      <label className="switch">
+                        <input type="checkbox" checked={rule.enabled} onChange={() => toggle(rule)} />
+                        <span className="switch-track" />
+                      </label>
+                    </td>
+                    <td className="row-actions">
+                      <button className="secondary" disabled={runningId === rule.id} onClick={() => runNow(rule.id)}>
+                        {runningId === rule.id ? "Running…" : "Run now"}
+                      </button>
+                      <button className="danger" onClick={() => remove(rule.id)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
