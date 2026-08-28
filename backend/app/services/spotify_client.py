@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timedelta
 
@@ -10,6 +11,8 @@ from sqlmodel import Session
 from app.config import settings
 from app.models import Credential, ServiceName
 from app.security import decrypt, encrypt
+
+logger = logging.getLogger(__name__)
 
 SCOPE = "playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private"
 
@@ -82,7 +85,17 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
             try:
                 items = sp.playlist_items(p["id"], fields="total", limit=1, additional_types=("track",))
                 track_count = items.get("total") or 0
-            except spotipy.SpotifyException:
+                if not track_count:
+                    logger.warning(
+                        "Spotify playlist_items returned no total for %r (id=%s): %r",
+                        p.get("name"),
+                        p["id"],
+                        items,
+                    )
+            except spotipy.SpotifyException as exc:
+                logger.warning(
+                    "Spotify playlist_items failed for %r (id=%s): %s", p.get("name"), p["id"], exc
+                )
                 track_count = (p.get("tracks") or {}).get("total") or 0
             playlists.append(
                 {
