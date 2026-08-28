@@ -71,12 +71,12 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
     while results:
         for p in results["items"]:
             images = p.get("images") or []
-            track_count = (p.get("tracks") or {}).get("total") or 0
-            if not track_count:
-                # The list endpoint's tracks.total is unreliable (often stale/0) even
-                # when the playlist has tracks; the single-playlist endpoint is accurate.
-                detail = sp.playlist(p["id"], fields="tracks.total")
-                track_count = (detail.get("tracks") or {}).get("total") or 0
+            # Both the playlist-list and single-playlist endpoints' embedded
+            # tracks.total are unreliable (often 0 even for non-empty playlists).
+            # The dedicated tracks sub-resource - the same one fetch_playlist_tracks
+            # uses for actual syncing - reports the real count.
+            items = sp.playlist_items(p["id"], fields="total", limit=1)
+            track_count = items.get("total") or 0
             playlists.append(
                 {
                     "id": p["id"],

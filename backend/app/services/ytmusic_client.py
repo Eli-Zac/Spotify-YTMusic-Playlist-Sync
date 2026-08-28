@@ -15,6 +15,15 @@ from app.security import decrypt, encrypt
 # In-memory holder for in-flight device-code auth attempts (single-user instance).
 _pending_device_codes: dict[str, dict] = {}
 
+# ytmusicapi's OAuth Token dataclass only accepts these fields - it passes the auth
+# dict straight through as **kwargs, so any extra key (e.g. Google's newer
+# "refresh_token_expires_in") raises TypeError: unexpected keyword argument.
+_YTMUSIC_TOKEN_FIELDS = {"scope", "token_type", "access_token", "refresh_token", "expires_at", "expires_in"}
+
+
+def _for_ytmusicapi(token: dict) -> dict:
+    return {k: v for k, v in token.items() if k in _YTMUSIC_TOKEN_FIELDS}
+
 
 def build_oauth_credentials() -> OAuthCredentials:
     return OAuthCredentials(
@@ -88,7 +97,7 @@ def get_client(session: Session) -> YTMusic:
         token.update(refreshed)
         token = store_token(session, token)
 
-    return YTMusic(auth=token, oauth_credentials=creds)
+    return YTMusic(auth=_for_ytmusicapi(token), oauth_credentials=creds)
 
 
 def list_playlists(yt: YTMusic) -> list[dict]:
