@@ -23,7 +23,14 @@ SCOPE = "playlist-read-private playlist-read-collaborative playlist-modify-publi
 # still wasn't enough headroom for a standard (non-extended-quota) app in
 # practice, so this is deliberately conservative.
 _MIN_CALL_INTERVAL = 0.3
+_MAX_CALL_INTERVAL = 5.0
 _last_call_at = 0.0
+
+# Once we've been throttled, keep every subsequent call in this process at
+# the slower pace rather than resetting back to _MIN_CALL_INTERVAL - a burst
+# of searches on a large playlist otherwise just re-trips the same limit a
+# few tracks later.
+_call_interval = _MIN_CALL_INTERVAL
 
 # On a 429, spotipy's default retry sleeps the thread for the full
 # Retry-After header (which can be hours). That's fine to wait out
@@ -35,7 +42,7 @@ _MAX_ATTEMPTS = 3
 
 def _throttle() -> None:
     global _last_call_at
-    wait = _last_call_at + _MIN_CALL_INTERVAL - time.monotonic()
+    wait = _last_call_at + _call_interval - time.monotonic()
     if wait > 0:
         time.sleep(wait)
     _last_call_at = time.monotonic()
@@ -44,12 +51,20 @@ def _throttle() -> None:
 def _call(fn, *args, **kwargs):
     """Calls a spotipy method, retrying briefly on short 429s (spotipy itself
     has retries disabled - see get_client) and re-raising anything else."""
+    global _call_interval
     for attempt in range(_MAX_ATTEMPTS):
         _throttle()
         try:
             return fn(*args, **kwargs)
         except spotipy.SpotifyException as exc:
-            if exc.http_status != 429 or attempt == _MAX_ATTEMPTS - 1:
+            if exc.http_status != 429:
+                raise
+            # We got limited despite the throttle - slow every future call in
+            # this run down (rather than only this one), since a fixed
+            # interval that was fine for a few hundred calls has apparently
+            # stopped being enough.
+            _call_interval = min(_call_interval * 2, _MAX_CALL_INTERVAL)
+            if attempt == _MAX_ATTEMPTS - 1:
                 raise
             retry_after = int((exc.headers or {}).get("Retry-After", 0) or 0)
             if retry_after > _MAX_RETRY_SLEEP:
@@ -163,7 +178,7 @@ def list_playlists(sp: spotipy.Spotify) -> list[dict]:
 
 
 def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str, on_page=None) -> list[dict]:
-    """Returns normalized track dicts: {id, isrc, title, artist}.
+    """Returns normalized track dicts: {id, isrc, title, artist, duration_ms}.
 
     on_page, if given, is called after each page with (len(tracks) so far, total)
     so a caller can surface live progress on playlists large enough that paging
@@ -184,6 +199,7 @@ def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str, on_page=None) -
                     "isrc": (t.get("external_ids") or {}).get("isrc"),
                     "title": t.get("name", ""),
                     "artist": ", ".join(a["name"] for a in t.get("artists", [])),
+                    "duration_ms": t.get("duration_ms"),
                 }
             )
         if on_page:
@@ -223,4 +239,5 @@ def search_track(sp: spotipy.Spotify, title: str, artist: str) -> dict | None:
         "isrc": (t.get("external_ids") or {}).get("isrc"),
         "title": t.get("name", ""),
         "artist": ", ".join(a["name"] for a in t.get("artists", [])),
+        "duration_ms": t.get("duration_ms"),
     }

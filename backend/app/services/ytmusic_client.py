@@ -134,6 +134,7 @@ def fetch_playlist_tracks(yt: YTMusic, playlist_id: str, on_page=None) -> list[d
                 "isrc": None,  # ytmusicapi does not expose ISRC directly
                 "title": t.get("title", ""),
                 "artist": ", ".join(a["name"] for a in t.get("artists", []) or []),
+                "duration_seconds": t.get("duration_seconds"),
             }
         )
     if on_page:
@@ -173,4 +174,5 @@ def search_track(yt: YTMusic, title: str, artist: str) -> dict | None:
         "isrc": None,
         "title": t.get("title", ""),
         "artist": ", ".join(a["name"] for a in t.get("artists", []) or []),
+        "duration_seconds": t.get("duration_seconds"),
     }

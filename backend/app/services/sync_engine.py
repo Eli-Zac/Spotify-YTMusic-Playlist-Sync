@@ -5,9 +5,9 @@ import logging
 import time
 from datetime import datetime
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.models import RunStatus, ServiceName, SyncMode, SyncRule, SyncRun
+from app.models import RunStatus, ServiceName, SyncMode, SyncRule, SyncRun, TrackMapping
 from app.services import matcher, notifier, spotify_client, ytmusic_client
 
 logger = logging.getLogger(__name__)
@@ -168,6 +168,44 @@ def run_by_id_in_background(rule_id: int, run_id: int) -> None:
         execute_run(session, rule, run)
 
 
+def _save_mappings(session: Session, rule_id: int, mappings: dict[str, str]) -> None:
+    if not mappings:
+        return
+    existing = session.exec(
+        select(TrackMapping).where(
+            TrackMapping.rule_id == rule_id,
+            TrackMapping.source_track_id.in_(mappings.keys()),
+        )
+    ).all()
+    existing_by_source = {m.source_track_id: m for m in existing}
+
+    for source_id, dest_id in mappings.items():
+        row = existing_by_source.get(source_id)
+        if row:
+            if row.dest_track_id != dest_id:
+                row.dest_track_id = dest_id
+                row.updated_at = datetime.utcnow()
+                session.add(row)
+        else:
+            session.add(TrackMapping(rule_id=rule_id, source_track_id=source_id, dest_track_id=dest_id))
+    session.commit()
+
+
+def _delete_mappings_for_dest_tracks(session: Session, rule_id: int, dest_track_ids: list[str]) -> None:
+    if not dest_track_ids:
+        return
+    stale = session.exec(
+        select(TrackMapping).where(
+            TrackMapping.rule_id == rule_id,
+            TrackMapping.dest_track_id.in_(dest_track_ids),
+        )
+    ).all()
+    for row in stale:
+        session.delete(row)
+    if stale:
+        session.commit()
+
+
 def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress) -> None:
     src_mod = _module(rule.source_service)
     dst_mod = _module(rule.dest_service)
@@ -201,6 +239,16 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress)
 
     same_service = rule.source_service == rule.dest_service
     dest_isrc_index = matcher.build_isrc_index(dest_tracks)
+    dest_by_id = {t["id"]: t for t in dest_tracks}
+
+    # Previously-resolved matches for this rule - lets a track we've already
+    # placed be recognized by ID straight away, without redoing fuzzy text
+    # matching (or a live search) for it on every run.
+    known_mappings = {
+        m.source_track_id: m.dest_track_id
+        for m in session.exec(select(TrackMapping).where(TrackMapping.rule_id == rule.id)).all()
+    }
+    new_mappings: dict[str, str] = {}
 
     to_add_ids: list[str] = []
     unmatched = 0
@@ -210,9 +258,13 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress)
     for i, src_track in enumerate(source_tracks, start=1):
         progress.check_cancelled()
         label = f"{src_track.get('title', '?')} — {src_track.get('artist', '?')}"
-        existing = matcher.find_match(src_track, dest_tracks, dest_isrc_index)
+        mapped_id = known_mappings.get(src_track["id"])
+        existing = dest_by_id.get(mapped_id) if mapped_id else None
+        if not existing:
+            existing = matcher.find_match(src_track, dest_tracks, dest_isrc_index)
+
         if existing:
-            pass
+            new_mappings[src_track["id"]] = existing["id"]
         elif same_service:
             to_add_ids.append(src_track["id"])
             progress.log(f"+ {label}")
@@ -221,6 +273,8 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress)
             if found:
                 to_add_ids.append(found["id"])
                 dest_tracks.append(found)  # avoid re-adding duplicates within this run
+                dest_by_id[found["id"]] = found
+                new_mappings[src_track["id"]] = found["id"]
                 progress.log(f"+ {label}")
             else:
                 unmatched += 1
@@ -228,6 +282,8 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress)
 
         progress.set_phase("matching", i, total)
         progress.flush(force=(i == total))
+
+    _save_mappings(session, rule.id, new_mappings)
 
     if to_add_ids:
         progress.set_phase("adding", 0, len(to_add_ids))
@@ -249,6 +305,7 @@ def _do_run(session: Session, rule: SyncRule, run: SyncRun, progress: _Progress)
             progress.log(f"Removing {len(to_remove_ids)} track(s) from destination…")
             progress.flush(force=True)
             dst_mod.remove_tracks(dst_client, rule.dest_playlist_id, to_remove_ids)
+            _delete_mappings_for_dest_tracks(session, rule.id, to_remove_ids)
         removed_count = len(to_remove_ids)
 
     run.tracks_added = len(to_add_ids)

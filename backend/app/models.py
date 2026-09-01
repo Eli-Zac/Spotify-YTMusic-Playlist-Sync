@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -77,6 +78,21 @@ class SyncRun(SQLModel, table=True):
     tracks_unmatched: int = 0
     error_message: Optional[str] = None
     detail_json: Optional[str] = None
+
+
+class TrackMapping(SQLModel, table=True):
+    """Remembers a resolved source-track -> destination-track pairing for a
+    rule, so a later run can recognize an already-synced track by ID instead
+    of re-deriving the match from title/artist text (or a fresh search) every
+    time."""
+
+    __table_args__ = (UniqueConstraint("rule_id", "source_track_id", name="uq_trackmapping_rule_source"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    rule_id: int = Field(foreign_key="syncrule.id", index=True)
+    source_track_id: str = Field(index=True)
+    dest_track_id: str
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class AppSetting(SQLModel, table=True):
